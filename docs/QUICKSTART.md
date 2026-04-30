@@ -76,7 +76,7 @@ Each file should be a **parquet file** containing tick data for one month. The c
 > ```bash
 > pixi run data
 > ```
-> This downloads XAU/USD data from 2018 onwards.
+> This downloads XAU/USD data from 2013 onwards (configured via `start_date` in `config.toml`).
 
 ---
 
@@ -95,15 +95,15 @@ flowchart TD
     S0["Stage 0: Convert ticks → OHLCV"] --> S1["Stage 1: Generate 11 indicators"]
     S1 --> S2["Stage 2: Triple-barrier labeling"]
     S2 --> S3["Stage 3: Walk-forward training<br/><i>GRU + LightGBM per window</i>"]
-    S3 --> S5["Stage 5: CFD backtest<br/><i>on concatenated OOF predictions</i>"]
-    S5 --> S6["Stage 6: Report + charts"]
+    S3 --> S4["Stage 4: CFD backtest<br/><i>on concatenated OOF predictions</i>"]
+    S4 --> S5["Stage 5: Report + charts"]
 
     style S0 fill:#2563EB,color:#fff
     style S1 fill:#2563EB,color:#fff
     style S2 fill:#2563EB,color:#fff
     style S3 fill:#7C3AED,color:#fff
+    style S4 fill:#059669,color:#fff
     style S5 fill:#059669,color:#fff
-    style S6 fill:#059669,color:#fff
 ```
 
 > **First run:** This may take 10–30 minutes depending on your hardware.
@@ -195,7 +195,6 @@ If you want to run just one stage, use the `workflow` toggles in `config.toml`:
 run_data_pipeline = false      # Skip data preparation
 run_feature_engineering = true  # Run feature engineering
 run_label_generation = false    # Skip label generation
-run_data_splitting = false      # Skip splitting
 run_model_training = true       # Run model training
 run_backtest = true             # Run backtest
 run_reporting = true            # Generate report

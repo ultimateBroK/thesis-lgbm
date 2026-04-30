@@ -10,6 +10,11 @@ end_date = "2026-03-31"
 tick_size = 0.01
 contract_size = 100
 
+# ── Splitting (static mode only) ──────────────────────────────────────
+# Only used when validation.method = "static". Default is walk-forward
+# (sliding-window), so these fields are inactive unless you switch method.
+# [splitting] section is intentionally omitted; defaults live in config.py.
+
 [validation]
 method = "sliding"
 train_window_bars = 26280   # ~3 years of H1 bars
@@ -62,7 +67,7 @@ atr_multiplier = 2.5
 horizon_bars = 24
 
 [model]
-architecture = "hybrid"
+architecture = "hybrid"    # "stacking" mode is experimental — not recommended for thesis defense
 use_optuna = false
 num_leaves = 31
 max_depth = 6
@@ -111,6 +116,7 @@ data_processed = "data/processed"
 ohlcv = "data/processed/ohlcv.parquet"
 features = "data/processed/features.parquet"
 labels = "data/processed/labels.parquet"
+# static split paths — only used when validation.method = "static"
 train_data = "data/processed/train.parquet"
 val_data = "data/processed/val.parquet"
 test_data = "data/processed/test.parquet"

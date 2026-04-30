@@ -25,14 +25,14 @@ application demo for the predicted classes, not as the main thesis claim.
 ```mermaid
 flowchart LR
     A["Raw Tick Data"] --> B["Prepare<br/>OHLCV"]
-    B --> C["Features<br/>11 indicators"]
+    B --> C["Features<br/>21 indicators"]
     C --> D["Labels<br/>3-class target"]
     D --> E["Walk-Forward<br/>Sliding Windows"]
 
-    E --> F["GRU<br/>32 hidden states"]
-    E --> G["Static<br/>11 core features"]
+    E --> F["GRU<br/>64 hidden states"]
+    E --> G["Static<br/>21 core features"]
 
-    F --> H["LightGBM<br/>43 features"]
+    F --> H["LightGBM<br/>85 features"]
     G --> H
 
     H --> I["Concatenate<br/>OOF Predictions"]
@@ -44,40 +44,39 @@ flowchart LR
 
 ## Pipeline Stages
 
-The pipeline has **6 stages** (0–3, 5–6) in walk-forward mode (the default).
-Stage 4 exists only when `validation.method = "static"`.
+The pipeline has **6 stages** (0–5) in walk-forward mode (the default).
 
 ```mermaid
 flowchart TD
     S0["<b>Stage 0</b><br/>Prepare<br/><i>Tick → OHLCV</i>"]
-    S1["<b>Stage 1</b><br/>Features<br/><i>11 indicators</i>"]
+    S1["<b>Stage 1</b><br/>Features<br/><i>21 indicators</i>"]
     S2["<b>Stage 2</b><br/>Labels<br/><i>Triple Barrier</i>"]
     S3["<b>Stage 3</b><br/>Walk-Forward Training<br/><i>GRU + LightGBM per window</i>"]
-    S5["<b>Stage 5</b><br/>Backtest<br/><i>CFD Simulation</i>"]
-    S6["<b>Stage 6</b><br/>Report<br/><i>Charts + Markdown</i>"]
+    S4["<b>Stage 4</b><br/>Backtest<br/><i>CFD Simulation</i>"]
+    S5["<b>Stage 5</b><br/>Report<br/><i>Charts + Markdown</i>"]
 
-    S0 --> S1 --> S2 --> S3 --> S5 --> S6
+    S0 --> S1 --> S2 --> S3 --> S4 --> S5
 
     style S0 fill:#2563EB,color:#fff
     style S1 fill:#2563EB,color:#fff
     style S2 fill:#2563EB,color:#fff
     style S3 fill:#7C3AED,color:#fff
+    style S4 fill:#059669,color:#fff
     style S5 fill:#059669,color:#fff
-    style S6 fill:#059669,color:#fff
 ```
 
 | # | Stage | What It Does | Input | Output |
 |---|-------|-------------|-------|--------|
 | 0 | **Prepare** | Convert raw tick data into 1-hour candle (OHLCV) bars | Raw parquet ticks | `ohlcv.parquet` |
-| 1 | **Features** | Calculate 11 technical indicators (RSI, ATR, MACD, etc.) | `ohlcv.parquet` | `features.parquet` |
+| 1 | **Features** | Calculate 21 technical indicators (RSI, ATR, MACD, etc.) | `ohlcv.parquet` | `features.parquet` |
 | 2 | **Labels** | Generate buy/sell/hold labels using the Triple Barrier method | `features.parquet` | `labels.parquet` |
 | 3 | **Walk-Forward Training** | For each sliding window: train GRU → extract hidden states → train LightGBM → predict on test slice → collect OOF predictions | `labels.parquet` | `final_predictions.parquet` + model files |
-| 5 | **Backtest** | Simulate CFD trading on concatenated OOF predictions | OOF predictions | `backtest_results.json` + `trades_detail.csv` |
-| 6 | **Report** | Generate ML metrics, baseline comparison, charts, and application summary | All outputs | Charts + `thesis_report.md` |
+| 4 | **Backtest** | Simulate CFD trading on concatenated OOF predictions | OOF predictions | `backtest_results.json` + `trades_detail.csv` |
+| 5 | **Report** | Generate ML metrics, baseline comparison, charts, and application summary | All outputs | Charts + `thesis_report.md` |
 
-> **Stage 4** (static train/val/test split + separate training) only runs when
-> `validation.method = "static"` in `config.toml`. It is **not used** in the
-> default walk-forward mode.
+> When `validation.method = "static"` in `config.toml`, stage 3 performs a
+> traditional train/val/test split and single-pass LightGBM training instead of
+> walk-forward. This mode is **not used** by default.
 
 ---
 
@@ -157,26 +156,26 @@ flowchart LR
         B48["Bar 48"]
     end
 
-    Input --> GRU["GRU<br/>2 layers × 32 hidden"]
-    GRU --> HS["32-dim<br/>hidden state"]
+    Input --> GRU["GRU<br/>2 layers × 64 hidden"]
+    GRU --> HS["64-dim<br/>hidden state"]
 
     style GRU fill:#7C3AED,color:#fff
     style HS fill:#7C3AED,color:#fff
 ```
 
-- **Input:** A sliding window of 48 hours using 6 normalized sequence features
-  (`log_returns`, `rsi_14`, `atr_14`, `macd_hist`, `return_4h`, `bb_width`).
-- **Output:** A 32-number vector (called "hidden states") that summarizes the temporal pattern.
+- **Input:** A sliding window of 48 hours using 8 normalized sequence features
+  (`log_returns`, `atr_14`, `close_vs_ema_34`, `ema34_vs_ema89`, `candle_body_ratio`, `return_1h`, `return_4h`, `price_position_20`).
+- **Output:** A 64-number vector (called "hidden states") that summarizes the temporal pattern.
 
 ### Step 2: LightGBM Decision Maker
 
 **LightGBM** is a tree-based model (like a flowchart with many branches).
-It takes the GRU's output plus the original 11 technical indicators and makes the final prediction.
+It takes the GRU's output plus the original 21 technical indicators and makes the final prediction.
 
 ```mermaid
 flowchart LR
-    GRU_OUT["GRU<br/>32 features"] --> COMBINE["Concatenate<br/>43 features"]
-    STATIC["Static<br/>11 features"] --> COMBINE
+    GRU_OUT["GRU<br/>64 features"] --> COMBINE["Concatenate<br/>85 features"]
+    STATIC["Static<br/>21 features"] --> COMBINE
     COMBINE --> LGBM["LightGBM<br/>Classifier"]
     LGBM --> LONG["📈 Long"]
     LGBM --> FLAT["➖ Flat"]
@@ -189,7 +188,7 @@ flowchart LR
     style SHORT fill:#DC2626,color:#fff
 ```
 
-- **Input:** 32 GRU hidden states + 11 static features = **43 features total**.
+- **Input:** 64 GRU hidden states + 21 static features = **85 features total**.
 - **Output:** A prediction — **Long** (buy), **Short** (sell), or **Flat** (hold).
 
 ### Why Hybrid?
@@ -203,7 +202,11 @@ flowchart LR
 
 ---
 
-## Stacking Architecture (Alternative)
+## Stacking Architecture (Alternative — Experimental)
+
+> ⚠️ **Experimental**: Stacking mode is experimental and not the default workflow.
+> The primary thesis pipeline uses **hybrid** mode. Do not use stacking for thesis
+> defense unless explicitly discussed with your advisor.
 
 When `model.architecture = "stacking"` is set in `config.toml`, the pipeline uses a
 **two-level ensemble** instead of the simpler hybrid concatenation:
@@ -259,7 +262,7 @@ Stacking-specific artifacts (in addition to the standard session output):
 | **No bidirectional GRU** | Prevents look-ahead bias (seeing future data) |
 | **Small attention pooling** | Summarizes the 48-bar GRU output into one fixed-size embedding |
 | **LightGBM as the decision maker** | Better interpretability, handles mixed feature types |
-| **Stacking as opt-in alternative** | Learns optimal base-model weighting from data; needs more folds |
+| **Stacking as opt-in alternative (experimental)** | Learns optimal base-model weighting from data; needs more folds; not recommended for thesis defense |
 | **Polars instead of Pandas** | 10-50x faster for time-series operations |
 | **Session-based output folders** | Each run is isolated — easy to compare experiments |
 | **Correlation filtering on train only** | Prevents data leakage from test set |
@@ -284,13 +287,13 @@ thesis/
 │   ├── session_paths.py     # Session directory path setup
 │   ├── pipeline.py          # Stage orchestration (walk-forward + static)
 │   ├── data.py              # Tick → OHLCV aggregation (Stage 0)
-│   ├── features.py          # 11 technical indicators (Stage 1)
+│   ├── features.py          # 21 technical indicators (Stage 1)
 │   ├── labels.py            # Triple-barrier labeling (Stage 2)
 │   ├── validation.py        # Walk-forward window generation + static split
 │   ├── gru.py               # GRU feature extractor (train, predict, save)
 │   ├── model.py             # LightGBM training (fixed params + Optuna)
 │   ├── backtest.py          # CFD trading simulation (Stage 5)
-│   ├── report.py            # Report + chart generation (Stage 6)
+│   ├── report.py            # Report + chart generation (Stage 5)
 │   ├── charts.py            # Interactive ECharts (Streamlit)
 │   ├── dashboard.py         # Streamlit dashboard
 │   ├── zones.py             # Metric zone classification
@@ -327,13 +330,13 @@ thesis/
 | Module | Role |
 |--------|------|
 | `data.py` | Stage 0: Tick → OHLCV |
-| `features.py` | Stage 1: 11 technical indicators |
+| `features.py` | Stage 1: 21 technical indicators |
 | `labels.py` | Stage 2: Triple-barrier labeling |
 | `validation.py` | Walk-forward window generation |
 | `gru.py` | GRU feature extractor |
 | `model.py` | LightGBM training |
 | `backtest.py` | Stage 5: CFD simulation |
-| `report.py` | Stage 6: Report + charts |
+| `report.py` | Stage 5: Report + charts |
 | `pipeline.py` | Stage orchestration |
 | `config.py` | TOML config → dataclasses |
 
@@ -355,7 +358,7 @@ Here is what happens to the data at each step:
 ```mermaid
 flowchart TD
     T0["Raw Ticks<br/><i>millions of rows</i>"] -->|"prepare_data()"| T1["OHLCV<br/><i>~55,000 rows</i>"]
-    T1 -->|"generate_features()"| T2["Features<br/><i>+ 11 technical indicators</i>"]
+    T1 -->|"generate_features()"| T2["Features<br/><i>+ 21 technical indicators</i>"]
     T2 -->|"generate_labels()"| T3["Labels<br/><i>+ buy/sell/hold + TP/SL prices</i>"]
     T3 -->|"walk-forward<br/>sliding windows"| T4["Per Window:<br/>Train slice → GRU → hidden states<br/>→ LightGBM → OOF predictions"]
     T4 -->|"concatenate<br/>OOF chunks"| T5["Final OOF Predictions<br/><i>timestamp + true_label + pred_label + probabilities</i>"]

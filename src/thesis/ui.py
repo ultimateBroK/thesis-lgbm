@@ -24,17 +24,15 @@ STAGE_STYLES: dict[int, str] = {
     3: "bold cyan",
     4: "bold magenta",
     5: "bold red",
-    6: "bold white",
 }
 
 STAGE_LABELS: dict[int, str] = {
     0: "Data Preparation",
     1: "Feature Engineering",
     2: "Triple-Barrier Labeling",
-    3: "Data Splitting",
-    4: "Model Training",
-    5: "Backtest",
-    6: "Report Generation",
+    3: "Walk-Forward Training",
+    4: "Backtest",
+    5: "Report Generation",
 }
 
 

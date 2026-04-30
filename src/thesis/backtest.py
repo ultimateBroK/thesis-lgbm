@@ -212,36 +212,6 @@ class HybridGRUStrategy(Strategy):
 
         return True
 
-    def _check_stop(self) -> None:
-        """Check if price has crossed the tracked stop level.
-
-        Uses open price (execution price) vs stored stop to detect crossings.
-        High/Low may briefly pierce the stop without actually filling at that
-        price, so we use open for conservative detection.
-        """
-        if not self._stops or not self.position:
-            return
-        open_price = self.data.Open[-1]
-        high = self.data.High[-1]
-        low = self.data.Low[-1]
-
-        if self.position.is_long:
-            sl = self._stops.get("long")
-            if sl is not None and open_price <= sl:
-                self.position.close()
-                self._stops.pop("long", None)
-            elif sl is not None and low <= sl < open_price:
-                self.position.close()
-                self._stops.pop("long", None)
-        elif self.position.is_short:
-            sl = self._stops.get("short")
-            if sl is not None and open_price >= sl:
-                self.position.close()
-                self._stops.pop("short", None)
-            elif sl is not None and high >= sl > open_price:
-                self.position.close()
-                self._stops.pop("short", None)
-
     def _compute_lots(self, confidence: float | None) -> float:
         """Compute position size based on confidence-weighted scaling.
 
@@ -811,8 +781,23 @@ def run_backtest(config: Config) -> None:
     # Walk-forward: predictions are OOF across all windows — need OHLCV from labels
     # Static: predictions are for the test split — need OHLCV from test split
     test_path = Path(config.paths.test_data)
-    if test_path.exists():
+    is_static = config.validation.method == "static"
+
+    if test_path.exists() and is_static:
         test_df = pl.read_parquet(test_path)
+    elif test_path.exists() and not is_static:
+        logger.warning(
+            "Static test file found (%s) but workflow is walk-forward "
+            "(method='%s') — ignoring stale test_data in favor of OOF predictions",
+            test_path,
+            config.validation.method,
+        )
+        labels_path = Path(config.paths.labels)
+        if not labels_path.exists():
+            raise FileNotFoundError(
+                f"Labels file not found ({labels_path}) — needed for walk-forward backtest"
+            )
+        test_df = pl.read_parquet(labels_path)
     else:
         labels_path = Path(config.paths.labels)
         if not labels_path.exists():

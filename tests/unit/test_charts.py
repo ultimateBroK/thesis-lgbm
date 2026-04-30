@@ -3,6 +3,8 @@
 import numpy as np
 import polars as pl
 import pytest
+
+pytest.importorskip("pyecharts")
 from pyecharts.charts import Bar, Grid, HeatMap, Kline, Line, Pie, Scatter, Tab
 
 from thesis.charts import (

@@ -120,7 +120,6 @@ def pipeline_config(temp_pipeline_dir: Path) -> Config:
     # Enable all stages
     config.workflow.run_feature_engineering = True
     config.workflow.run_label_generation = True
-    config.workflow.run_data_splitting = True
     config.workflow.run_model_training = True
     config.workflow.run_backtest = True
     config.workflow.run_reporting = True
@@ -147,7 +146,6 @@ def test_pipeline_stage_ordering(pipeline_config: Config) -> None:
 
     # Run features stage
     pipeline_config.workflow.run_label_generation = False
-    pipeline_config.workflow.run_data_splitting = False
     pipeline_config.workflow.run_model_training = False
     pipeline_config.workflow.run_backtest = False
     pipeline_config.workflow.run_reporting = False
@@ -176,7 +174,6 @@ def test_pipeline_respects_cache(pipeline_config: Config) -> None:
 
     # Run features once
     pipeline_config.workflow.run_label_generation = False
-    pipeline_config.workflow.run_data_splitting = False
     pipeline_config.workflow.run_model_training = False
     pipeline_config.workflow.run_backtest = False
     pipeline_config.workflow.run_reporting = False
@@ -208,7 +205,6 @@ def test_pipeline_force_overwrites(pipeline_config: Config) -> None:
 
     # Run features once
     pipeline_config.workflow.run_label_generation = False
-    pipeline_config.workflow.run_data_splitting = False
     pipeline_config.workflow.run_model_training = False
     pipeline_config.workflow.run_backtest = False
     pipeline_config.workflow.run_reporting = False
@@ -240,7 +236,6 @@ def test_pipeline_disabled_stages_skipped(pipeline_config: Config) -> None:
     # Disable all stages except features
     pipeline_config.workflow.run_feature_engineering = True
     pipeline_config.workflow.run_label_generation = False
-    pipeline_config.workflow.run_data_splitting = False
     pipeline_config.workflow.run_model_training = False
     pipeline_config.workflow.run_backtest = False
     pipeline_config.workflow.run_reporting = False

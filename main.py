@@ -7,7 +7,7 @@ Usage:
 Options:
     --session SESSION   Continue from an existing session directory name
                         (e.g., XAUUSD_H1_20260418_143052)
-    --stage N           Start pipeline from stage N (0-6). Use with --session.
+    --stage N           Start pipeline from stage N (0-5). Use with --session.
                         Default: resumes from first missing stage.
     --force             Force re-run all stages (or stage with --stage)
 """
@@ -22,13 +22,15 @@ import shutil
 import sys
 import time
 
+from thesis.config import load_config
+from thesis.pipeline import run_pipeline
+from thesis.session_paths import configure_session_paths, load_config_for_session
+
 PROJECT_ROOT = Path(__file__).resolve().parent
 if (PROJECT_ROOT / "src").exists():
     sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from thesis.config import load_config
-from thesis.pipeline import run_pipeline
-from thesis.session_paths import configure_session_paths, load_config_for_session
+
 
 
 _ANSI_RE = re.compile(r"\033\[[0-9;]*m")
@@ -98,9 +100,9 @@ def main() -> None:
     parser.add_argument(
         "--stage",
         type=int,
-        choices=[0, 1, 2, 3, 4, 5, 6],
+        choices=[0, 1, 2, 3, 4, 5],
         default=None,
-        help="Start from stage N (0-6). Use with --session.",
+        help="Start from stage N (0-5). Skips stages before N.",
     )
     parser.add_argument("--force", action="store_true", help="Force re-run all stages")
     args = parser.parse_args()
@@ -127,22 +129,19 @@ def main() -> None:
         )
         config.workflow.session_timestamp = session_ts
 
-        # If --stage specified, disable stages before the target stage
+        # If --stage specified, disable stages BEFORE the target stage
+        # Stage N: skip 0..N-1, run N..end
         if args.stage is not None:
-            if args.stage <= 0:
+            if args.stage > 0:
                 config.workflow.run_data_pipeline = False
-            if args.stage <= 1:
+            if args.stage > 1:
                 config.workflow.run_feature_engineering = False
-            if args.stage <= 2:
+            if args.stage > 2:
                 config.workflow.run_label_generation = False
-            if args.stage <= 3:
-                config.workflow.run_data_splitting = False
-            if args.stage <= 4:
+            if args.stage > 3:
                 config.workflow.run_model_training = False
-            if args.stage < 5:
+            if args.stage > 4:
                 config.workflow.run_backtest = False
-            if args.stage < 6:
-                config.workflow.run_reporting = False
 
         log_mode = "a"  # Append to existing log
     else:

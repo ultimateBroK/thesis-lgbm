@@ -55,7 +55,11 @@ class DataConfig:
 
 @dataclass
 class SplittingConfig:
-    """Train / val / test date ranges (kept for backward compat / static splits)."""
+    """Train / val / test date ranges for static splits.
+
+    Only used when ``validation.method = "static"``. The default workflow
+    uses walk-forward (sliding-window) validation — see :class:`ValidationConfig`.
+    """
 
     train_start: str = "2013-01-01"
     train_end: str = "2022-03-31 23:59:59"
@@ -222,7 +226,6 @@ class WorkflowConfig:
     run_data_pipeline: bool = True
     run_feature_engineering: bool = True
     run_label_generation: bool = True
-    run_data_splitting: bool = True
     run_model_training: bool = True
     run_backtest: bool = True
     run_reporting: bool = True
@@ -253,9 +256,9 @@ class PathsConfig:
     ohlcv: str = "data/processed/ohlcv.parquet"
     features: str = "data/processed/features.parquet"
     labels: str = "data/processed/labels.parquet"
-    train_data: str = "data/processed/train.parquet"
-    val_data: str = "data/processed/val.parquet"
-    test_data: str = "data/processed/test.parquet"
+    train_data: str = "data/processed/train.parquet"  # static split only
+    val_data: str = "data/processed/val.parquet"  # static split only
+    test_data: str = "data/processed/test.parquet"  # static split only
     model: str = "models/lightgbm_model.pkl"
     gru_model: str = "models/gru_model.pt"
     predictions: str = "data/predictions/final_predictions.parquet"

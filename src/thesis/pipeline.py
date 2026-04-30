@@ -149,24 +149,21 @@ def _run_walk_forward_hybrid(config: Config) -> None:
     )
 
     if not windows:
-        logger.error("No valid walk-forward windows generated")
-        return
+        raise RuntimeError("No valid walk-forward windows generated — check data size and window parameters")
 
     log_windows(windows, df, "timestamp")
     logger.info("Walk-forward: %d windows", len(windows))
 
     # Identify feature columns (exclude non-features)
     feature_cols = sorted(c for c in df.columns if c not in EXCLUDE_COLS)
-    gru_cols = list(config.gru.feature_cols)
-
-    # Filter GRU cols to available columns
-    available_cols = set(df.columns) | {"log_returns"}
-    gru_cols = [c for c in gru_cols if c in available_cols]
 
     all_oof_preds: list[pl.DataFrame] = []
+    gru_model = None
+    gru_mean = None
+    gru_std = None
     best_model = None
     best_feature_cols: list[str] = []
-    best_sharpe = -float("inf")
+    best_accuracy = 0.0
     last_gru_history: list[dict] = []
 
     stage_start = time.perf_counter()
@@ -206,7 +203,7 @@ def _run_walk_forward_hybrid(config: Config) -> None:
         (
             gru_model,
             _classifier,
-            train_hidden,
+            _,  # train_hidden from train_gru – overwritten below after full-train extraction
             val_hidden,
             gru_history,
             gru_mean,
@@ -314,8 +311,8 @@ def _run_walk_forward_hybrid(config: Config) -> None:
         )
 
         # Track best model and its feature cols
-        if acc > best_sharpe:
-            best_sharpe = acc
+        if acc > best_accuracy:
+            best_accuracy = acc
             best_model = model
             best_feature_cols = all_feature_cols
 
@@ -341,15 +338,18 @@ def _run_walk_forward_hybrid(config: Config) -> None:
         window_time = time.perf_counter() - window_start
         logger.info("Window %d done (%.1fs)", w_idx + 1, window_time)
 
+    # --- Validate OOF predictions before saving ---
+    if not all_oof_preds or gru_model is None:
+        raise RuntimeError(
+            "No OOF predictions generated — all walk-forward windows were skipped"
+        )
+
     # --- Save final GRU model (last window only) ---
     if config.paths.session_dir:
         gru_path = Path(config.paths.session_dir) / "models" / "gru_model.pt"
         save_gru_model(gru_model, config, gru_path, mean=gru_mean, std=gru_std)
 
     # --- Concatenate OOF predictions ---
-    if not all_oof_preds:
-        logger.error("No OOF predictions generated")
-        return
 
     oof_df = pl.concat(all_oof_preds)
     preds_path = Path(config.paths.predictions)
@@ -1103,24 +1103,20 @@ def run_pipeline(config: Config) -> None:
                 "True stacking is implemented only for validation.method='sliding'"
             )
         logger.info("Using static train/val/test split")
-        _run_stage(
-            3, config, "run_data_splitting", config.paths.train_data, lambda cfg: None
-        )
-        _run_stage(4, config, "run_model_training", None, _run_static_train)
+        _run_stage(3, config, "run_model_training", None, _run_static_train)
 
-    # Stage 4/5: Backtest
-    bt_flag = "run_backtest"
+    # Stage 4: Backtest
     _run_stage(
-        5,
+        4,
         config,
-        bt_flag,
+        "run_backtest",
         None,
         run_backtest,
     )
 
-    # Stage 5/6: Report
+    # Stage 5: Report
     _run_stage(
-        6,
+        5,
         config,
         "run_reporting",
         None,

@@ -31,6 +31,9 @@ test-fast = "pytest tests/ -v -m 'not slow'"
 # Interactive visualization
 streamlit = "PYTHONPATH=src streamlit run src/thesis/dashboard.py --server.port 8501"
 
+# ---------------------------------------------------------------------------
+# Dependencies — core pipeline + testing only
+# ---------------------------------------------------------------------------
 [dependencies]
 python = ">=3.13,<3.14"
 scikit-learn = ">=1.8.0,<2"
@@ -47,19 +50,47 @@ ruff = ">=0.15.7,<0.16"
 pytest = ">=8.0.0,<9"
 joblib = ">=1.4.0,<2"
 pytest-cov = ">=7.1.0,<8"
-ipykernel = ">=7.2.0,<8"
-jupyter = ">=1.1.1,<2"
 aiohttp = ">=3.13.5,<4"
 pytorch = ">=2.10.0,<3"
-bokeh = ">=3.9.0,<4"
-streamlit = ">=1.56.0,<2"
 rich = ">=15.0.0,<16"
 numba = ">=0.65.0,<0.66"
 accelerate = ">=1.13.0,<2"
 
-
 [pypi-dependencies]
 backtesting = ">=0.6.5, <0.7"
-streamlit-echarts = { version = ">=0.6.0, <0.7", extras = ["pyecharts"] }
 dukascopy-python = ">=4.0.1, <5"
+
+# ---------------------------------------------------------------------------
+# Feature: dashboard (streamlit + visualization extras)
+# ---------------------------------------------------------------------------
+[feature.dashboard.dependencies]
+streamlit = ">=1.56.0,<2"
+bokeh = ">=3.9.0,<4"
+
+[feature.dashboard.pypi-dependencies]
+streamlit-echarts = { version = ">=0.6.0, <0.7", extras = ["pyecharts"] }
+
+[feature.dashboard.tasks]
+streamlit = "PYTHONPATH=src streamlit run src/thesis/dashboard.py --server.port 8501"
+
+# ---------------------------------------------------------------------------
+# Feature: dev (notebooks, dead-code analysis)
+# ---------------------------------------------------------------------------
+[feature.dev.dependencies]
+jupyter = ">=1.1.1,<2"
+ipykernel = ">=7.2.0,<8"
+
+[feature.dev.pypi-dependencies]
 vulture = ">=2.16, <3"
+
+[feature.dev.tasks]
+dead-code = "vulture src tests --min-confidence 80"
+
+# ---------------------------------------------------------------------------
+# Environments
+# ---------------------------------------------------------------------------
+[environments]
+default = []
+dashboard = ["dashboard"]
+dev = ["dev"]
+all = ["dashboard", "dev"]

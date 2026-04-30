@@ -5,7 +5,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from thesis.config import load_config, get_config, reload_config, Config, LGBMConfig
+import pytest
+
+from thesis.config import load_config, get_config, reload_config, Config, LGBMConfig, WorkflowConfig
+from thesis.constants import CORE_STATIC_FEATURES
 
 
 def test_load_config_default():
@@ -131,3 +134,76 @@ def test_stacking_defaults():
     assert cfg.stacking.meta_model == "lightgbm"
     assert cfg.stacking.use_probability_features_only is True
     assert cfg.stacking.final_refit is True
+
+
+# ---------------------------------------------------------------------------
+# WorkflowConfig structure tests (Task 13d — run_data_splitting removed)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_workflow_config_no_run_data_splitting():
+    """run_data_splitting was removed in cleanup — must not exist."""
+    wf = WorkflowConfig()
+    assert not hasattr(wf, "run_data_splitting")
+
+
+@pytest.mark.unit
+def test_workflow_config_has_six_boolean_toggles():
+    """WorkflowConfig should have exactly 6 run_* boolean toggles."""
+    bool_fields = [
+        attr
+        for attr in dir(WorkflowConfig)
+        if attr.startswith("run_") and isinstance(getattr(WorkflowConfig, attr, None), bool)
+    ]
+    assert len(bool_fields) == 6
+
+
+@pytest.mark.unit
+def test_workflow_config_expected_boolean_fields():
+    """All expected boolean fields present after cleanup."""
+    wf = WorkflowConfig()
+    expected = [
+        "run_data_pipeline",
+        "run_feature_engineering",
+        "run_label_generation",
+        "run_model_training",
+        "run_backtest",
+        "run_reporting",
+    ]
+    for field_name in expected:
+        assert hasattr(wf, field_name), f"Missing: {field_name}"
+        assert getattr(wf, field_name) is True, f"{field_name} should default True"
+
+
+# ---------------------------------------------------------------------------
+# Docs/config consistency tests (Task 13b)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_static_feature_count_is_21():
+    """CORE_STATIC_FEATURES must have exactly 21 features."""
+    assert len(CORE_STATIC_FEATURES) == 21
+
+
+@pytest.mark.unit
+def test_gru_hidden_size_is_64():
+    """GRU hidden_size must equal 64 (docs contract)."""
+    cfg = Config()
+    assert cfg.gru.hidden_size == 64
+
+
+@pytest.mark.unit
+def test_total_features_equals_hidden_plus_static():
+    """total features = hidden_size + len(static_feature_cols)."""
+    cfg = Config()
+    total = cfg.gru.hidden_size + len(cfg.features.static_feature_cols)
+    assert total == 64 + 21  # 85
+
+
+@pytest.mark.unit
+def test_static_features_match_constants():
+    """Config defaults must match CORE_STATIC_FEATURES tuple."""
+    cfg = Config()
+    assert list(cfg.features.static_feature_cols) == list(CORE_STATIC_FEATURES)

@@ -273,7 +273,7 @@ A labeling method that places three "barriers" around the entry price: a take-pr
 
 **Train / Validation / Test Split**
 Dividing your data into three parts:
-- **Train** — Used to teach the model (2018-2022)
+- **Train** — Used to teach the model (2018-2022). Raw data starts from January 2013; walk-forward effective training start depends on `min_train_bars` and window parameters — the first window begins after sufficient historical bars accumulate.
 - **Validation** — Used to check the model during training (2023)
 - **Test** — Used for the final evaluation (2024-2026), never seen during training
 

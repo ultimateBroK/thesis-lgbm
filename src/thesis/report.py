@@ -252,13 +252,21 @@ def _load_close_prices_for_benchmark(
     Returns:
         1-D array of close prices, or ``None`` when no data is available.
     """
-    # 1. Try static test split first
-    if test_data_path.exists():
+    # 1. Try static test split — only when validation method is actually "static"
+    is_static = config.validation.method == "static"
+    if test_data_path.exists() and is_static:
         try:
             df = pl.read_parquet(test_data_path, columns=["close"])
             return df["close"].to_numpy()
         except Exception:
             logger.warning("Failed to load test data for benchmarks")
+    elif test_data_path.exists() and not is_static:
+        logger.warning(
+            "Static test file found (%s) but workflow is walk-forward "
+            "(method='%s') — ignoring stale test_data for benchmarks",
+            test_data_path,
+            config.validation.method,
+        )
 
     # 2. Walk-forward fallback: load OHLCV and filter to backtest period
     ohlcv_path = Path(config.paths.ohlcv)

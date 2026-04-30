@@ -8,7 +8,8 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.10-red.svg)](https://pytorch.org/)
 
 **Student-friendly machine-learning pipeline** for time-series classification using
-a compact hybrid GRU + LightGBM architecture (stacking variant available).
+a compact hybrid GRU + LightGBM architecture (stacking variant available, but
+**experimental** — not the default workflow).
 XAU/USD is used as the case study, but the thesis focus is data processing,
 leakage-safe validation, model training, and reproducible evaluation rather than
 financial strategy design.
@@ -56,11 +57,11 @@ Results are saved to `results/XAUUSD_1H_<timestamp>/`.
 ```mermaid
 flowchart LR
     A["Raw Ticks"] --> B["Prepare<br/>OHLCV"]
-    B --> C["Features<br/>11 indicators"]
+    B -->     C["Features<br/>21 indicators"]
     C --> D["Labels<br/>3-class target"]
     D --> E["Walk-Forward<br/>Sliding Windows"]
-    E --> F["GRU<br/>32 hidden"]
-    E --> G["Static<br/>11 core features"]
+    E --> F["GRU<br/>64 hidden"]
+    E --> G["Static<br/>21 core features"]
     F --> H["LightGBM<br/>compact hybrid features"]
     G --> H
     H --> I["ML Report<br/>Accuracy/F1/Baseline"]
@@ -69,8 +70,8 @@ flowchart LR
 
 The hybrid model works in two steps:
 
-1. **GRU** reads 48 hours of normalized history and outputs a **32-number temporal embedding**.
-2. **LightGBM** combines that embedding with **11 stable tabular indicators** and predicts: **Short**, **Hold**, or **Long**.
+1. **GRU** reads 48 hours of normalized history and outputs a **64-number temporal embedding**.
+2. **LightGBM** combines that embedding with **21 stable tabular indicators** and predicts: **Short**, **Hold**, or **Long**.
 3. **Evaluation** compares against majority and directional baselines before showing the backtest as an application demo.
 
 ---
@@ -96,10 +97,10 @@ The hybrid model works in two steps:
 |--------|-------|
 | Asset | XAU/USD (Gold / US Dollar) |
 | Timeframe | 1 hour (H1) |
-| Data range | January 2018 – March 2026 |
+| Data range | January 2013 – March 2026 |
 | Validation | Walk-forward sliding window (3-year train, 6-month test) |
-| Model | GRU (32-dim) → LightGBM (43 features) |
-| Features | 11 technical indicators + 32 GRU hidden states |
+| Model | GRU (64-dim) → LightGBM (85 features) |
+| Features | 21 technical indicators + 64 GRU hidden states |
 | Labels | Triple Barrier (Long / Flat / Short) |
 | Charts | 12 static (matplotlib) + interactive (Streamlit/ECharts) |
 | Backtest | Lightweight application demo with fixed costs and capped risk |
@@ -119,7 +120,7 @@ thesis/
 │   ├── config.py            # TOML config loader + dataclasses
 │   ├── pipeline.py          # Stage orchestration (0–3, 5–6 walk-forward)
 │   ├── data.py              # Tick → OHLCV (Stage 0)
-│   ├── features.py          # 11 technical indicators (Stage 1)
+│   ├── features.py          # 21 technical indicators (Stage 1)
 │   ├── labels.py            # Triple-barrier labeling (Stage 2)
 │   ├── validation.py        # Walk-forward window generation
 │   ├── gru.py               # GRU feature extractor
@@ -155,7 +156,7 @@ thesis/
 | **Sinh viên** | Nguyễn Đức Hiếu — 63CNTT.VA — 2151061192 |
 | **Giáo viên hướng dẫn** | Hoàng Quốc Dũng |
 | **Khung thời gian** | H1 (1 giờ) |
-| **Dải dữ liệu** | 01/2018 – 03/2026 |
+| **Dải dữ liệu** | 01/2013 – 03/2026 |
 
 ---
 
@@ -165,19 +166,19 @@ Xây dựng pipeline end-to-end cho bài toán phân loại chuỗi thời gian 
 
 ```mermaid
 flowchart LR
-    GRU["GRU<br/>(chuỗi 48 nến)"] -->|"32 hidden"| Stack
-    LGB["LightGBM<br/>(11 core features)"] -->|"xác suất"| Stack
+    GRU["GRU<br/>(chuỗi 48 nến)"] -->|"64 hidden"| Stack
+    LGB["LightGBM<br/>(21 core features)"] -->|"xác suất"| Stack
     Stack["Hybrid Model"] --> Pred["3 nhãn<br/>Mua / Trung tính / Bán"]
 ```
 
 ## Mục tiêu chính
 
-1. Thu thập và chuẩn hóa dữ liệu CFD Vàng H1 (01/2018 – 03/2026)
+1. Thu thập và chuẩn hóa dữ liệu CFD Vàng H1 (01/2013 – 03/2026)
 2. Làm sạch dữ liệu: lọc nến bất thường, bỏ cuối tuần, xử lý gap phiên
 3. Chia tập bằng **Walk-Forward Sliding Window** (cửa sổ 3 năm train, 6 tháng test, bước nhảy 6 tháng) với Purging + Embargo chống rò rỉ
 4. Xây dựng đặc trưng kỹ thuật + định lượng bằng Feature Importance / SHAP
 5. Huấn luyện mô hình GRU nền + LightGBM nền
-6. Xây dựng kiến trúc **Hybrid** (mặc định) hoặc **Stacking** (qua `model.architecture = "stacking"`)
+6. Xây dựng kiến trúc **Hybrid** (mặc định) hoặc **Stacking** (_thử nghiệm, không dùng cho đồ án_)
 7. Giải thích mô hình + backtest minh họa ứng dụng trên OOS
 
 ## Đặc trưng kỹ thuật
