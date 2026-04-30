@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from thesis.config import load_config, Config, LGBMConfig
+from thesis.config import load_config, get_config, reload_config, Config, LGBMConfig
 
 
 def test_load_config_default():
@@ -15,6 +15,22 @@ def test_load_config_default():
     assert cfg.data.timeframe == "1H"
 
 
+def test_get_config_reuses_cached_instance():
+    config_path = Path(__file__).parent.parent / "config.toml"
+    get_config.cache_clear()
+    cfg1 = get_config(config_path)
+    cfg2 = get_config(config_path)
+    assert cfg1 is cfg2
+
+
+def test_reload_config_refreshes_cached_instance():
+    config_path = Path(__file__).parent.parent / "config.toml"
+    cfg1 = get_config(config_path)
+    cfg2 = reload_config(config_path)
+    assert cfg1 is not cfg2
+    assert cfg2.data.symbol == "XAUUSD"
+
+
 def test_config_sections_exist():
     cfg = load_config(Path(__file__).parent.parent / "config.toml")
     assert hasattr(cfg, "data")
@@ -22,6 +38,7 @@ def test_config_sections_exist():
     assert hasattr(cfg, "features")
     assert hasattr(cfg, "labels")
     assert hasattr(cfg, "model")
+    assert hasattr(cfg, "stacking")
     assert hasattr(cfg, "backtest")
     assert hasattr(cfg, "workflow")
     assert hasattr(cfg, "paths")
@@ -31,6 +48,7 @@ def test_model_config_flat():
     cfg = load_config(Path(__file__).parent.parent / "config.toml")
     # Model config is a flat dataclass, not a dict
     assert isinstance(cfg.model, LGBMConfig)
+    assert cfg.model.architecture in {"hybrid", "stacking"}
     assert cfg.model.num_leaves > 0
     assert cfg.model.learning_rate > 0
 
@@ -47,6 +65,7 @@ def test_paths_basic():
     assert cfg.paths.train_data.endswith(".parquet")
     assert cfg.paths.val_data.endswith(".parquet")
     assert cfg.paths.test_data.endswith(".parquet")
+    assert cfg.paths.stack_bundle.endswith(".joblib")
 
 
 def test_missing_config_raises():
@@ -104,3 +123,11 @@ def test_download_max_retries_default_value():
     """Test download_max_retries default value from config.toml."""
     cfg = load_config(Path(__file__).parent.parent / "config.toml")
     assert cfg.data.download_max_retries == 7
+
+
+def test_stacking_defaults():
+    cfg = load_config(Path(__file__).parent.parent / "config.toml")
+    assert cfg.stacking.base_models == ["gru", "lgbm"]
+    assert cfg.stacking.meta_model == "lightgbm"
+    assert cfg.stacking.use_probability_features_only is True
+    assert cfg.stacking.final_refit is True

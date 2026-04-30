@@ -22,11 +22,14 @@ An experiment where you remove parts of your model one at a time to see which pa
 **Backtest**
 A simulation of how a trading strategy would have performed in the past. You pretend to trade using historical data and see if you would have made money. It is not a guarantee of future results.
 
-**Bid / Ask**
-Two prices you always see in trading. The **bid** is the highest price a buyer is willing to pay. The **ask** is the lowest price a seller is willing to accept. The difference between them is the spread.
+**Base Learner**
+A model that serves as a building block in a stacking ensemble. In this project, GRU and LightGBM are base learners whose predictions feed into the meta-learner.
 
 **Batch Size**
 The number of data samples processed at once during neural network training. A batch size of 64 means the model looks at 64 examples, updates its weights, then looks at the next 64.
+
+**Bid / Ask**
+Two prices you always see in trading. The **bid** is the highest price a buyer is willing to pay. The **ask** is the lowest price a seller is willing to accept. The difference between them is the spread.
 
 ---
 
@@ -157,6 +160,9 @@ When your broker warns you that your account does not have enough money to maint
 **Max Drawdown**
 The largest percentage drop from a peak to a trough in your equity curve. It measures the worst-case loss you would have experienced.
 
+**Meta-learner**
+The second-level model in a stacking ensemble that learns how to best combine the predictions of base learners. In this project, a LightGBM classifier serves as the meta-learner.
+
 ---
 
 ## N
@@ -176,6 +182,9 @@ A Python library for automatic hyperparameter tuning. Instead of guessing the be
 
 **Overfitting**
 When a model learns the training data too well, including the noise. It performs great on training data but poorly on new, unseen data. Like a student who memorized exam answers but cannot solve new problems.
+
+**OOF (Out-of-Fold) Predictions**
+Predictions made on data that the model was NOT trained on during a specific walk-forward window. These are the test-slice predictions from each sliding window, concatenated to produce an unbiased evaluation dataset.
 
 ---
 
@@ -225,6 +234,9 @@ A measure of risk-adjusted return. It tells you how much return you get per unit
 **Short**
 A trade where you sell, hoping the price will go down. You make money if the price falls.
 
+**Sliding Window**
+A walk-forward validation technique where a fixed-size training window slides forward through time. Each window produces a separate train/test split, and the process generates out-of-fold predictions across the entire dataset.
+
 **Slippage**
 The difference between the price you wanted and the price you actually got. In fast markets, you might not get filled at the exact price you wanted.
 
@@ -233,6 +245,9 @@ Similar to Sharpe ratio, but it only considers downside risk (losses). It is oft
 
 **Spread**
 The difference between the bid and ask price. This is a cost you pay every time you trade. A spread of 2 pips means you start each trade $2 in the hole.
+
+**Stacking**
+An ensemble method that trains multiple base models independently, then uses their predictions as input features for a meta-learner that makes the final prediction. Unlike simple concatenation (hybrid), stacking learns the optimal combination weights from data.
 
 **Stop-Loss (SL)**
 A price level where you automatically exit a losing trade to limit your loss. If you buy at $2,000 and set a stop-loss at $1,990, you will exit if the price drops to $1,990.
@@ -274,7 +289,7 @@ A portion of data used during training to check if the model is learning well. I
 ## W
 
 **Walk-Forward Validation**
-A testing method where you train on a window of data and test on the next window, then slide the window forward. It is more realistic for time series than a single train/test split.
+A time-series validation method where the model is trained on a historical window and tested on the subsequent period, then the window slides forward. This mimics real-world deployment and prevents look-ahead bias. The default mode in this project.
 
 **Win Rate**
 The percentage of trades that made money. A 55% win rate means 55 out of every 100 trades were profitable.

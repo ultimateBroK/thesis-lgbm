@@ -7,12 +7,14 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import polars as pl
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from thesis.backtest import (
+    _calendar_day,
     run_backtest_from_data,
 )
 from thesis.config import Config
@@ -88,6 +90,7 @@ def sample_config() -> Config:
     config.backtest.slippage_ticks = 3.0
     config.backtest.commission_per_lot = 10.0
     config.backtest.atr_stop_multiplier = 0.75
+    config.backtest.confidence_threshold = 0.0  # disable confidence gating for deterministic sizing
     config.data.contract_size = 100
     config.data.tick_size = 0.01
     return config
@@ -206,3 +209,15 @@ def test_no_lookahead_bias(sample_config: Config) -> None:
     # backtesting.py evaluates at bar[i] close, executes at bar[i+1] open
     # With all_long signals starting from bar 0, first trade enters at bar 1
     assert metrics.get("num_trades", 0) > 0
+
+
+@pytest.mark.unit
+@pytest.mark.backtest
+def test_calendar_day_strips_intraday_time() -> None:
+    """Daily risk state must reset by date, not every bar timestamp."""
+    ts1 = pd.Timestamp("2026-04-29 09:00:00")
+    ts2 = pd.Timestamp("2026-04-29 17:00:00")
+    ts3 = pd.Timestamp("2026-04-30 00:00:00")
+
+    assert _calendar_day(ts1) == _calendar_day(ts2)
+    assert _calendar_day(ts1) != _calendar_day(ts3)

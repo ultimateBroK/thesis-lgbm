@@ -7,16 +7,6 @@ and helper functions for consistent terminal output across all stages.
 import logging
 
 from rich.console import Console
-from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeElapsedColumn,
-)
-from rich.table import Table
-from rich.panel import Panel
 from rich.text import Text
 
 # ---------------------------------------------------------------------------
@@ -78,61 +68,3 @@ def stage_skip(stage: int, reason: str) -> None:
     console.print(Text(f"  ⊘ SKIP {label}: {reason}", style="dim"))
     # Logger output for file capture
     _logger.info("SKIP %s | %s", label, reason)
-
-
-def training_progress(label: str, total: float, **fields: float) -> Progress:
-    """Create a styled Progress bar for training loops.
-
-    Returns an *unstarted* Progress — caller uses ``with progress:``.
-    Extra keyword arguments become live-updating fields in the bar.
-    """
-    columns: list = [
-        SpinnerColumn(spinner_name="dots"),
-        TextColumn(f"[bold]{label}"),
-        BarColumn(bar_width=40),
-        MofNCompleteColumn(),
-        "•",
-    ]
-    for key in fields:
-        if "loss" in key:
-            columns.append(TextColumn(f"[cyan]{key}={{task.fields[{key!r}]:.4f}}"))
-        elif "acc" in key or "f1" in key:
-            columns.append(TextColumn(f"[green]{key}={{task.fields[{key!r}]:.3f}}"))
-        else:
-            columns.append(TextColumn(f"{{task.fields[{key!r}]}}"))
-    columns.append(TimeElapsedColumn())
-    return Progress(
-        *columns,
-        console=console,
-        transient=False,
-    )
-
-
-def result_table(
-    title: str, rows: list[dict[str, str]], styles: dict[str, str] | None = None
-) -> None:
-    """Print a compact results table."""
-    if not rows:
-        return
-    table = Table(
-        title=title, show_header=True, header_style="bold", border_style="dim"
-    )
-    styles = styles or {}
-    for col in rows[0]:
-        table.add_column(col, style=styles.get(col, ""))
-    for row in rows:
-        table.add_row(*[row[c] for c in row])
-    console.print(table)
-
-
-def summary_panel(title: str, lines: list[str], style: str = "green") -> None:
-    """Print a compact summary panel."""
-    console.print(
-        Panel(
-            "\n".join(lines),
-            title=title,
-            style=style,
-            border_style=style,
-            padding=(0, 2),
-        )
-    )

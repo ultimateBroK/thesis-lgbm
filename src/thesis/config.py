@@ -1,15 +1,19 @@
-"""Simplified configuration for thesis pipeline.
+"""Centralized configuration for the thesis ML pipeline.
 
-Uses ``tomllib`` (stdlib) + 3 dataclasses to load a flat TOML config.
-No environment-variable overrides, no session-aware ATR, no LSTM config.
+This module is the single entry point for loading and sharing runtime
+configuration. TOML files may stay minimal: omitted fields fall back to the
+dataclass defaults below.
 """
 
-import tomllib
-import re
 import logging
+import re
+import tomllib
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+from thesis.constants import CORE_STATIC_FEATURES
 
 
 logger = logging.getLogger("thesis.config")
@@ -22,7 +26,17 @@ logger = logging.getLogger("thesis.config")
 
 @dataclass
 class DataConfig:
-    """Data loading and OHLCV parameters."""
+    """Data loading and OHLCV parameters.
+
+    Attributes:
+        symbol: Display symbol used in session names and reports.
+        timeframe: Bar timeframe such as ``1H`` or ``4H``.
+        market_tz: Time zone used for session-aware feature engineering.
+        start_date: Inclusive data start date.
+        end_date: Inclusive data end date.
+        tick_size: Minimum price movement.
+        contract_size: Units per trading lot for the application demo.
+    """
 
     symbol: str = "XAUUSD"
     timeframe: str = "1H"
@@ -41,7 +55,7 @@ class DataConfig:
 
 @dataclass
 class SplittingConfig:
-    """Train / val / test date ranges and leakage prevention."""
+    """Train / val / test date ranges (kept for backward compat / static splits)."""
 
     train_start: str = "2013-01-01"
     train_end: str = "2022-03-31 23:59:59"
@@ -56,8 +70,51 @@ class SplittingConfig:
 
 
 @dataclass
+class ValidationConfig:
+    """Walk-forward validation parameters — sliding window with purge & embargo."""
+
+    method: str = "sliding"  # "sliding" or "static"
+    train_window_bars: int = 26280  # ~3 years of H1 bars
+    test_window_bars: int = 4380  # ~6 months of H1 bars
+    step_bars: int = 4380  # step between windows (= test_window for non-overlapping)
+    purge_bars: int = 25  # bars removed at train/test boundary
+    embargo_bars: int = 50  # additional gap after purge
+    min_train_bars: int = 10000  # minimum training bars to produce a window
+    oof_ensemble: bool = True  # aggregate OOF predictions across windows
+    wf_optuna_trials: int = (
+        0  # Optuna trials per walk-forward window (0 = fixed params)
+    )
+
+
+@dataclass
+class MultiTimeframeConfig:
+    """Multi-timeframe and extended feature parameters."""
+
+    sma_periods: list[int] = field(default_factory=lambda: [50])
+    ema_long: int = 200
+    bb_period: int = 20
+    bb_std: float = 2.0
+    return_lookbacks: list[int] = field(default_factory=lambda: [1, 4, 24])
+    range_lookback: int = 20
+    volume_zscore_period: int = 20
+
+
+@dataclass
 class FeaturesConfig:
-    """Feature engineering parameters."""
+    """Feature engineering parameters.
+
+    Attributes:
+        rsi_period: RSI lookback.
+        atr_period: ATR lookback.
+        macd_fast: MACD fast EMA span.
+        macd_slow: MACD slow EMA span.
+        macd_signal: MACD signal EMA span.
+        correlation_threshold: Threshold used by compatibility tests and
+            optional filtering code.
+        static_feature_cols: Compact tabular feature whitelist consumed by
+            LightGBM in the simplified hybrid architecture.
+        multi_timeframe: Derived-feature settings.
+    """
 
     rsi_period: int = 14
     atr_period: int = 14
@@ -65,13 +122,17 @@ class FeaturesConfig:
     macd_slow: int = 26
     macd_signal: int = 9
     correlation_threshold: float = 0.75
+    static_feature_cols: list[str] = field(
+        default_factory=lambda: list(CORE_STATIC_FEATURES)
+    )
+    multi_timeframe: MultiTimeframeConfig = field(default_factory=MultiTimeframeConfig)
 
 
 @dataclass
 class LabelsConfig:
     """Triple-barrier label parameters (single ATR multiplier, no sessions)."""
 
-    atr_multiplier: float = 1.5
+    atr_multiplier: float = 2.5
     horizon_bars: int = 24
     num_classes: int = 3
     min_atr: float = 0.5
@@ -82,20 +143,51 @@ class LGBMConfig:
     """LightGBM parameters."""
 
     # LightGBM
-    use_optuna: bool = True
-    optuna_trials: int = 100
-    optuna_timeout: int = 3600
-    num_leaves: int = 48
-    max_depth: int = 4
-    learning_rate: float = 0.03
-    n_estimators: int = 150
-    min_child_samples: int = 200
-    subsample: float = 0.70
+    architecture: str = "hybrid"  # "hybrid" or "stacking"
+    use_optuna: bool = False
+    optuna_trials: int = 20
+    optuna_timeout: int = 300
+    num_leaves: int = 31
+    max_depth: int = 6
+    learning_rate: float = 0.02
+    n_estimators: int = 500
+    min_child_samples: int = 50
+    subsample: float = 0.80
     subsample_freq: int = 5
-    feature_fraction: float = 0.60
-    reg_alpha: float = 0.1
-    reg_lambda: float = 10.0
-    early_stopping_rounds: int = 50
+    feature_fraction: float = 0.70
+    reg_alpha: float = 0.05
+    reg_lambda: float = 5.0
+    early_stopping_rounds: int = 40
+
+
+@dataclass
+class GRUConfig:
+    """GRU feature extractor parameters."""
+
+    input_size: int = 8
+    feature_cols: list[str] = field(
+        default_factory=lambda: [
+            "log_returns",
+            "atr_14",
+            "close_vs_ema_34",
+            "ema34_vs_ema89",
+            "candle_body_ratio",
+            "return_1h",
+            "return_4h",
+            "price_position_20",
+        ]
+    )
+    hidden_size: int = 64
+    num_layers: int = 2
+    sequence_length: int = 48
+    dropout: float = 0.3
+    learning_rate: float = 0.0005
+    batch_size: int = 256
+    epochs: int = 50
+    patience: int = 15
+    min_epochs: int = 5
+    focal_loss_gamma: float = 2.0
+    warmup_epochs: int = 3
 
 
 @dataclass
@@ -103,35 +195,24 @@ class BacktestConfig:
     """CFD backtest parameters — thin wrapper for backtesting.py."""
 
     initial_capital: float = 10_000.0
-    leverage: int = 30  # margin = 1/leverage
+    leverage: int = 10  # margin = 1/leverage
     spread_ticks: float = 35.0  # → spread param (relative)
     slippage_ticks: float = 5.0
     commission_per_lot: float = 10.0  # → callable commission
     atr_stop_multiplier: float = 1.0
-    lots_per_trade: float = 0.2  # fixed lot size per trade
+    atr_tp_multiplier: float = 2.0  # ATR multiplier for take-profit (0 = disabled)
+    lots_per_trade: float = 0.1  # base lot size for position sizing
+    min_lots: float = 0.05  # minimum lot size (low-conviction floor)
+    max_lots: float = 0.1  # maximum lot size (high-conviction cap)
     confidence_threshold: float = (
-        0.65  # min predicted probability to act (0 = disabled)
+        0.55  # min predicted probability to act (0 = disabled)
     )
-    contract_size: int = 100
-    tick_size: float = 0.01
-
-
-@dataclass
-class GRUConfig:
-    """GRU feature extractor parameters."""
-
-    input_size: int = 4  # must match len(feature_cols)
-    hidden_size: int = 32
-    num_layers: int = 2
-    sequence_length: int = 48
-    dropout: float = 0.4
-    learning_rate: float = 0.001
-    batch_size: int = 64
-    epochs: int = 30
-    patience: int = 10
-    feature_cols: list[str] = field(
-        default_factory=lambda: ["log_returns", "rsi_14", "atr_14", "macd_hist"]
+    max_drawdown_cutoff: float = (
+        0.30  # circuit breaker: stop if equity < peak * (1 - cutoff)
     )
+    dd_cooldown_bars: int = 12  # bars to pause after drawdown cutoff breach
+    max_open_positions: int = 1  # max simultaneous open positions
+    daily_loss_limit: float = 0.03  # stop trading for day after -N equity drawdown
 
 
 @dataclass
@@ -152,6 +233,18 @@ class WorkflowConfig:
 
 
 @dataclass
+class StackingConfig:
+    """True stacking parameters."""
+
+    base_models: list[str] = field(default_factory=lambda: ["gru", "lgbm"])
+    meta_model: str = "lightgbm"
+    use_probability_features_only: bool = True
+    min_meta_train_folds: int = 1
+    min_meta_train_rows: int = 500
+    final_refit: bool = True
+
+
+@dataclass
 class PathsConfig:
     """Artifact paths with session-based output support."""
 
@@ -166,6 +259,7 @@ class PathsConfig:
     model: str = "models/lightgbm_model.pkl"
     gru_model: str = "models/gru_model.pt"
     predictions: str = "data/predictions/final_predictions.parquet"
+    stack_bundle: str = "models/stacking_bundle.joblib"
     backtest_results: str = "results/backtest_results.json"
     report: str = "results/thesis_report.md"
     session_dir: str = ""  # Set at runtime by pipeline
@@ -182,11 +276,13 @@ class Config:
 
     data: DataConfig = field(default_factory=DataConfig)
     splitting: SplittingConfig = field(default_factory=SplittingConfig)
+    validation: ValidationConfig = field(default_factory=ValidationConfig)
     features: FeaturesConfig = field(default_factory=FeaturesConfig)
     labels: LabelsConfig = field(default_factory=LabelsConfig)
     model: LGBMConfig = field(default_factory=LGBMConfig)
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
     gru: GRUConfig = field(default_factory=GRUConfig)
+    stacking: StackingConfig = field(default_factory=StackingConfig)
     workflow: WorkflowConfig = field(default_factory=WorkflowConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
 
@@ -198,18 +294,30 @@ class Config:
 _SECTION_MAP: dict[str, type] = {
     "data": DataConfig,
     "splitting": SplittingConfig,
+    "validation": ValidationConfig,
     "features": FeaturesConfig,
     "labels": LabelsConfig,
     "model": LGBMConfig,
     "backtest": BacktestConfig,
     "gru": GRUConfig,
+    "stacking": StackingConfig,
     "workflow": WorkflowConfig,
     "paths": PathsConfig,
 }
 
 
 def _timeframe_to_minutes(timeframe: str) -> int:
-    """Convert timeframe strings like 1H/4H/15M/1D/1W to minutes."""
+    """Convert a timeframe string to minutes.
+
+    Args:
+        timeframe: String such as ``15M``, ``1H``, ``4H``, ``1D``, or ``1W``.
+
+    Returns:
+        Number of minutes represented by one bar.
+
+    Raises:
+        ValueError: If the timeframe format is unsupported.
+    """
     match = re.fullmatch(r"\s*(\d+)\s*([mhdwMHDW])\s*", timeframe)
     if not match:
         raise ValueError(
@@ -233,7 +341,16 @@ def _scale_bars_by_timeframe(
     base_timeframe: str,
     target_timeframe: str,
 ) -> int:
-    """Scale bar count to preserve approximately the same elapsed time across timeframes."""
+    """Scale a bar count to preserve elapsed time across timeframes.
+
+    Args:
+        base_bars: Number of bars on the reference timeframe.
+        base_timeframe: Reference timeframe.
+        target_timeframe: Target timeframe.
+
+    Returns:
+        Equivalent number of target-timeframe bars, floored at 1.
+    """
     base_minutes = _timeframe_to_minutes(base_timeframe)
     target_minutes = _timeframe_to_minutes(target_timeframe)
     scaled = int(round(base_bars * (base_minutes / target_minutes)))
@@ -262,7 +379,14 @@ def load_config(config_path: str | Path = "config.toml") -> Config:
     cfg = Config()
     for section, cls in _SECTION_MAP.items():
         if section in raw:
-            setattr(cfg, section, cls(**raw[section]))
+            section_data = raw[section]
+            # Handle nested subsections — pop them out before **kwargs
+            if section == "features" and "multi_timeframe" in section_data:
+                mt_data = section_data.pop("multi_timeframe")
+                setattr(cfg, section, cls(**section_data))
+                cfg.features.multi_timeframe = MultiTimeframeConfig(**mt_data)
+            else:
+                setattr(cfg, section, cls(**section_data))
 
     if cfg.splitting.embargo_scale_by_timeframe:
         base_bars = cfg.splitting.embargo_bars
@@ -284,6 +408,35 @@ def load_config(config_path: str | Path = "config.toml") -> Config:
     # Ensure base directories exist
     Path(cfg.paths.data_processed).mkdir(parents=True, exist_ok=True)
     Path(cfg.paths.data_raw).mkdir(parents=True, exist_ok=True)
-    Path("models").mkdir(parents=True, exist_ok=True)
 
     return cfg
+
+
+@lru_cache(maxsize=8)
+def get_config(config_path: str | Path = "config.toml") -> Config:
+    """Load and cache a configuration for reuse across modules.
+
+    Prefer dependency injection for pipeline code. This helper is intended for
+    UI/reporting modules or scripts that need a shared config without manually
+    passing it through every call.
+
+    Args:
+        config_path: Path to a TOML configuration file.
+
+    Returns:
+        Cached :class:`Config` instance for the given path.
+    """
+    return load_config(Path(config_path))
+
+
+def reload_config(config_path: str | Path = "config.toml") -> Config:
+    """Clear the config cache and reload a TOML file.
+
+    Args:
+        config_path: Path to a TOML configuration file.
+
+    Returns:
+        Fresh :class:`Config` instance.
+    """
+    get_config.cache_clear()
+    return get_config(config_path)

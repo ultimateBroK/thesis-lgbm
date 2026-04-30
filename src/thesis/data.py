@@ -7,6 +7,8 @@ Memory-efficient: aggregates each monthly file independently, then concats
 only the small OHLCV results (~56K rows for 8 years of 1H bars).
 """
 
+from __future__ import annotations
+
 import logging
 from pathlib import Path
 

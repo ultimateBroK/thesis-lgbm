@@ -14,22 +14,24 @@ results/XAUUSD_1H_20260414_042000/
 
 ```mermaid
 flowchart TD
-    ROOT["results/XAUUSD_1H_.../"] --> BT["backtest_results.json<br/><b>⬅ Start here</b>"]
-    ROOT --> REP["thesis_report.md<br/><b>⬅ Then read this</b>"]
-    ROOT --> CH["charts/<br/>12 visualizations"]
-    ROOT --> CFG["config_snapshot.toml"]
-    ROOT --> LOG["logs/pipeline.log"]
+    ROOT["results/XAUUSD_1H_.../"] --> BT["backtest/<br/>backtest_results.json<br/><b>⬅ Start here</b>"]
+    ROOT --> REP["reports/<br/>thesis_report.md<br/><b>⬅ Then read this</b>"]
+    ROOT --> RPT["reports/<br/>walk_forward_history.json"]
+    ROOT --> CHART["reports/<br/>equity_curve.png, feature_importance.png"]
+    ROOT --> CFG["config/<br/>config_snapshot.toml"]
+    ROOT --> LOG["logs/<br/>pipeline.log"]
 
     style BT fill:#059669,color:#fff
     style REP fill:#2563EB,color:#fff
 ```
 
-The two most important files are:
+The most important files are:
 
 | File | What to Look At |
 |------|----------------|
-| `backtest/backtest_results.json` | All the numbers (metrics) |
+| `backtest/backtest_results.json` | All the numbers (metrics + trade list) |
 | `reports/thesis_report.md` | Written summary with charts |
+| `reports/walk_forward_history.json` | Walk-forward window boundaries and OOF row counts |
 
 ---
 
@@ -305,6 +307,41 @@ Recovery Factor = 30,000 / 10,000 = 3.0
 
 ---
 
+## Walk-Forward Out-of-Fold (OOF) Predictions
+
+The pipeline uses **walk-forward validation** to avoid look-ahead bias. Understanding how OOF predictions work is key to trusting the backtest results.
+
+### What Are OOF Predictions?
+
+In each walk-forward window, the model is trained on past data and predicts on a **test slice it has never seen**. These test-slice predictions are called **out-of-fold (OOF)** predictions because the model was not trained on that data.
+
+### How It Works
+
+```text
+Window 1:  [Train] → [Test Slice 1] → OOF predictions
+Window 2:  [Train + Slice 1] → [Test Slice 2] → OOF predictions
+Window 3:  [Train + Slices 1-2] → [Test Slice 3] → OOF predictions
+                           ⋮
+All OOF predictions concatenated → unbiased evaluation
+```
+
+### Why It Matters
+
+- **No data leakage:** Each prediction is made on data the model never trained on.
+- **Realistic evaluation:** The backtest runs on these OOF predictions, so the trading results reflect genuine out-of-sample performance.
+- **Window boundaries:** `reports/walk_forward_history.json` records the exact date ranges and row counts for each window, so you can verify coverage.
+
+### Where to Check
+
+| File | What It Contains |
+|------|-----------------|
+| `reports/walk_forward_history.json` | Window boundaries, OOF row counts per window |
+| `predictions/final_predictions.csv` | Full prediction set including OOF signal column |
+
+> **Tip:** If the total OOF rows are much fewer than your test period length, the walk-forward windows may not cover the full test range. Check the window dates in `walk_forward_history.json` against your configured `test_start` and `test_end`.
+
+---
+
 ## Interactive Dashboard - Performance Overview
 
 The project includes an **interactive Streamlit dashboard** that provides real-time metric evaluation with color-coded zones and recommendations.
@@ -363,41 +400,44 @@ The dashboard displays metrics in organized rows with intelligent zone evaluatio
 
 ## Reading the Charts
 
-The project generates **12 charts** in the session folder, plus an interactive Bokeh chart.
+The pipeline generates **static charts** in `reports/` and an **interactive Bokeh chart** in `backtest/`. Interactive pyecharts visualizations are also available through the Streamlit dashboard (see the Dashboard section above).
 
-### Data Charts (`charts/data/`)
+### Static Charts (`reports/`)
 
-| Chart | What to Look For |
-|-------|-----------------|
-| `candlestick.png` | OHLC candlestick chart with volume. Make sure the data looks normal — no huge gaps or spikes. |
-| `label_distribution.png` | Check if the three classes (Long/Flat/Short) are balanced. If one class dominates (>70%), the model may struggle. |
-| `feature_correlation.png` | Look for very dark red squares — these mean two features carry almost the same information. |
-| `feature_distributions.png` | Each feature should have a reasonable shape (not all zeros, no extreme outliers). |
+| File | What to Look For |
+|------|-----------------|
+| `equity_curve.png` | Equity curve over time. Should trend upward with manageable drawdowns. |
+| `feature_importance.png` | Top-20 features by importance. Check if GRU features dominate or if static features contribute. |
+| `shap_summary.png` | SHAP value breakdown by class (Long/Hold/Short). Shows which features push predictions toward each class. |
 
-### Model Charts (`charts/model/`)
+### Interactive Backtest Chart (`backtest/`)
 
-| Chart | What to Look For |
-|-------|-----------------|
-| `confusion_matrix.png` | The diagonal should be bright (correct predictions). Off-diagonal = mistakes. |
-| `confidence_distribution.png` | Good models show high confidence for correct predictions and low confidence for wrong ones. |
-| `feature_importance.png` | Shows which features matter most. GRU features (purple) vs. static features (blue). |
+| File | What to Look For |
+|------|-----------------|
+| `backtest_chart.html` | Interactive Bokeh chart with equity curve, drawdown overlay, and trade markers. Resampled for performance. Open in any browser. |
 
-### Backtest Charts (`charts/backtest/`)
+### Dashboard Charts (Streamlit)
 
-| Chart | What to Look For |
-|-------|-----------------|
-| `equity_drawdown.png` | Equity curve with drawdown overlay. Should trend upward over time with manageable drawdowns. |
-| `pnl_histogram.png` | Distribution of trade profits and losses. Wins should outweigh losses. |
-| `monthly_returns.png` | Heatmap of monthly returns. Most months should be green. |
-| `rolling_sharpe.png` | Rolling Sharpe ratio over a 30-trade window. Should stay above 0 consistently. |
-| `duration_vs_pnl.png` | Scatter plot of trade duration vs profit. No strong patterns = good. |
-| `backtest_chart.html` | Interactive Bokeh chart with equity, drawdown, and trade markers. Resampled to 2h for performance. |
+The `pixi run streamlit` dashboard provides additional interactive charts powered by pyecharts:
 
-### Additional Backtest Files
+- **Candlestick chart** — OHLC with volume, trade markers, and predictions overlay
+- **Label distribution** — Pie chart showing class balance (Long/Flat/Short)
+- **Feature correlation heatmap** — Identifies redundant features
+- **Feature distributions** — Per-feature histogram across the dataset
+- **Confusion matrix** — Model accuracy breakdown by class
+- **Confidence distribution** — Prediction confidence for correct vs. incorrect predictions
+- **Feature importance & SHAP** — Interactive bar charts for feature analysis
+- **Equity & drawdown** — Interactive equity curve with drawdown overlay
+- **PnL histogram** — Distribution of trade profits and losses
+- **Monthly returns heatmap** — Calendar heatmap of monthly returns
+- **Rolling Sharpe** — Rolling Sharpe ratio over a 30-trade window
+- **Duration vs. PnL scatter** — Trade duration vs. profit relationship
+
+### Backtest Data Files (`backtest/`)
 
 | File | What It Contains |
-|------|-----------------|
-| `backtest_results.json` | All metrics + trade list (JSON) |
+|------|------------------|
+| `backtest_results.json` | All metrics + full trade list (JSON) |
 | `trades_detail.csv` | Per-trade breakdown: entry/exit time, direction, PnL, commission, duration |
 | `equity_curve.csv` | Running equity and drawdown percentage per trade |
 
@@ -427,6 +467,8 @@ Actual Short [0.10] [0.20] [0.70]
 
 ## Ablation Study — Proving the Hybrid Works
 
+> **Note:** Ablation is not a built-in pipeline stage. There is no `--ablation` flag or `pixi run ablation` task. The section below describes a manual comparison approach you can run by training variants separately and comparing their backtest results.
+
 The ablation study compares three variants:
 
 ```mermaid
@@ -451,7 +493,7 @@ flowchart TD
 
 ### How to Read the Comparison
 
-Look at `ablation_results.json`:
+Look at `ablation_results.json` (hypothetical example — you would generate this manually):
 
 ```json
 {

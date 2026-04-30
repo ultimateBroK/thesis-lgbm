@@ -1,4 +1,4 @@
-"""Triple-barrier labeling — simplified, no session-aware ATR.
+"""Stage 2: triple-barrier labeling — simplified, no session-aware ATR.
 
 Uses a single ``atr_multiplier`` for all hours. No DST detection,
 no session definitions, no dead-hour filtering.
@@ -8,6 +8,8 @@ Classes:
      0  Hold  (neither barrier hit within horizon)
     -1  Short (stop-loss barrier hit first)
 """
+
+from __future__ import annotations
 
 import logging
 from pathlib import Path
@@ -19,6 +21,11 @@ from numba import njit
 from thesis.config import Config
 
 logger = logging.getLogger("thesis.labels")
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 def generate_labels(config: Config) -> None:
@@ -80,55 +87,13 @@ def generate_labels(config: Config) -> None:
     df = _merge_label_columns(
         df, labels_arr, tp_prices_arr, sl_prices_arr, touched_bars_arr
     )
-    df = _replace_censored_with_hold(df)
+    df = _filter_censored(df)
     _log_distribution(df)
 
     out_path = Path(config.paths.labels)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df.write_parquet(out_path)
     logger.info("Labels saved: %s (%d rows)", out_path, len(df))
-
-
-def _validate_paths(features_path: Path, ohlcv_path: Path) -> None:
-    """Validate that required input paths exist."""
-    if not features_path.exists():
-        raise FileNotFoundError(f"Features not found: {features_path}")
-    if not ohlcv_path.exists():
-        raise FileNotFoundError(f"OHLCV not found: {ohlcv_path}")
-
-
-def _merge_label_columns(
-    df: pl.DataFrame,
-    labels_arr: np.ndarray,
-    tp_prices_arr: np.ndarray,
-    sl_prices_arr: np.ndarray,
-    touched_bars_arr: np.ndarray,
-) -> pl.DataFrame:
-    """Build and join label columns into the main dataframe."""
-    ts_dtype = df["timestamp"].dtype
-    labels_df = pl.DataFrame(
-        {
-            "timestamp": pl.Series(df["timestamp"].to_list(), dtype=ts_dtype),
-            "label": labels_arr,
-            "tp_price": tp_prices_arr,
-            "sl_price": sl_prices_arr,
-            "touched_bar": touched_bars_arr,
-        }
-    )
-    return df.join(labels_df, on="timestamp", how="left")
-
-
-def _replace_censored_with_hold(df: pl.DataFrame) -> pl.DataFrame:
-    """Replace censored label markers (-2) with Hold (0)."""
-    n_censored = int((df["label"] == -2).sum())
-    if n_censored <= 0:
-        return df
-    return df.with_columns(
-        pl.when(pl.col("label") == -2)
-        .then(pl.lit(0))
-        .otherwise(pl.col("label"))
-        .alias("label")
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +114,7 @@ def _compute_labels(
     """
     Compute triple-barrier outcomes for each bar by setting TP/SL levels and scanning forward up to the given horizon.
 
-    For each index i this sets TP = close[i] + mult * max(atr[i], min_atr) and SL = close[i] - mult * max(atr[i], min_atr), then inspects bars i+1 .. i+horizon (bounded by series end) to determine which barrier is touched first. If neither barrier is touched within the horizon the label remains 0. If both barriers are touched on the same bar, it is treated as Hold (skips to next bar). Rows within `horizon` bars of the series end are marked -2 (censored) and should be excluded from training.
+    For each index i this sets TP = close[i] + mult * max(atr[i], min_atr) and SL = close[i] - mult * max(atr[i], min_atr), then inspects bars i+1 .. i+horizon (bounded by series end) to determine which barrier is touched first. If neither barrier is touched within the horizon the label remains 0. If both barriers are touched on the same bar, the close price determines the label: closer to TP → Long (1), closer to SL → Short (-1), equidistant → Hold (0). Rows within `horizon` bars of the series end are marked -2 (censored) and are dropped from training.
 
     Returns:
         dict: A dictionary with the following keys:
@@ -182,8 +147,16 @@ def _compute_labels(
             tp_hit = high[j] >= tp
             sl_hit = low[j] <= sl
             if tp_hit and sl_hit:
-                # Same bar spans both barriers — unknowable intrabar path.
-                # Both barriers touched on same bar — treat as no-decision.
+                # Both barriers touched on same bar — use close price to determine direction
+                tp_dist = abs(close[j] - tp)
+                sl_dist = abs(close[j] - sl)
+                if tp_dist < sl_dist:
+                    label = 1  # closer to TP → Long
+                    touched_bars[i] = j - i
+                elif sl_dist < tp_dist:
+                    label = -1  # closer to SL → Short
+                    touched_bars[i] = j - i
+                # else: equidistant → remains Hold (0)
                 break
             if tp_hit:
                 label = 1  # Long
@@ -201,6 +174,48 @@ def _compute_labels(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _validate_paths(features_path: Path, ohlcv_path: Path) -> None:
+    """Validate that required input paths exist."""
+    if not features_path.exists():
+        raise FileNotFoundError(f"Features not found: {features_path}")
+    if not ohlcv_path.exists():
+        raise FileNotFoundError(f"OHLCV not found: {ohlcv_path}")
+
+
+def _merge_label_columns(
+    df: pl.DataFrame,
+    labels_arr: np.ndarray,
+    tp_prices_arr: np.ndarray,
+    sl_prices_arr: np.ndarray,
+    touched_bars_arr: np.ndarray,
+) -> pl.DataFrame:
+    """Build and join label columns into the main dataframe."""
+    ts_dtype = df["timestamp"].dtype
+    labels_df = pl.DataFrame(
+        {
+            "timestamp": pl.Series(df["timestamp"].to_list(), dtype=ts_dtype),
+            "label": labels_arr,
+            "tp_price": tp_prices_arr,
+            "sl_price": sl_prices_arr,
+            "touched_bar": touched_bars_arr,
+        }
+    )
+    return df.join(labels_df, on="timestamp", how="left")
+
+
+def _filter_censored(df: pl.DataFrame) -> pl.DataFrame:
+    """Remove censored rows (label == -2) where forward horizon is insufficient.
+
+    Censored rows lack enough future data to evaluate the triple-barrier outcome.
+    Keeping them as Hold would inject label noise, so they are dropped entirely.
+    """
+    n_censored = int((df["label"] == -2).sum())
+    if n_censored <= 0:
+        return df
+    logger.info("Dropping %d censored rows (insufficient forward horizon)", n_censored)
+    return df.filter(pl.col("label") != -2)
 
 
 def _log_distribution(df: pl.DataFrame) -> None:

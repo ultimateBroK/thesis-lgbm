@@ -20,7 +20,9 @@ from thesis.gru import (
     SequenceDataset,
     _sliding_windows,
     extract_hidden_states,
+    load_gru_classifier,
     load_gru_model,
+    predict_gru_proba,
     prepare_sequences,
     save_gru_model,
     train_gru,
@@ -326,6 +328,33 @@ def test_load_nonexistent_file() -> None:
         load_gru_model("/nonexistent/path/model.pt")
 
 
+@pytest.mark.unit
+@pytest.mark.models
+def test_save_load_round_trip_with_classifier(gru_config: Config, tmp_path: Path) -> None:
+    """Classifier-aware checkpoints should reload the same probabilities."""
+    model = GRUExtractor(
+        input_size=gru_config.gru.input_size,
+        hidden_size=gru_config.gru.hidden_size,
+        num_layers=gru_config.gru.num_layers,
+        dropout=gru_config.gru.dropout,
+    )
+    classifier = torch.nn.Linear(gru_config.gru.hidden_size, gru_config.labels.num_classes)
+    model.eval()
+    classifier.eval()
+
+    sequences = np.random.randn(6, 5, gru_config.gru.input_size).astype(np.float32)
+    expected = predict_gru_proba(model, classifier, sequences, batch_size=3)
+
+    save_path = tmp_path / "gru_with_classifier.pt"
+    save_gru_model(model, gru_config, save_path, classifier=classifier)
+
+    loaded_model, metadata = load_gru_model(save_path)
+    loaded_classifier = load_gru_classifier(metadata)
+    actual = predict_gru_proba(loaded_model, loaded_classifier, sequences, batch_size=3)
+
+    np.testing.assert_allclose(actual, expected)
+
+
 # ---------------------------------------------------------------------------
 # Training (Integration-style, but fast with tiny model)
 # ---------------------------------------------------------------------------
@@ -343,7 +372,7 @@ def test_train_gru_returns_correct_shapes(
     train_df = synthetic_df.slice(0, split)
     val_df = synthetic_df.slice(split)
 
-    model, _classifier, train_hidden, val_hidden, history = train_gru(
+    model, _classifier, train_hidden, val_hidden, history, mean, std, _gru_cols = train_gru(
         gru_config, train_df, val_df
     )
 
@@ -351,7 +380,10 @@ def test_train_gru_returns_correct_shapes(
     expected_train = len(train_df) - seq_len + 1
     expected_val = len(val_df) - seq_len + 1
 
-    assert isinstance(model, GRUExtractor)
+    # torch.compile wraps the model in OptimizedModule on CPU
+    from torch._dynamo import OptimizedModule
+
+    assert isinstance(model, (GRUExtractor, OptimizedModule))
     assert train_hidden.shape == (expected_train, gru_config.gru.hidden_size)
     assert val_hidden.shape == (expected_val, gru_config.gru.hidden_size)
 
@@ -367,7 +399,7 @@ def test_train_gru_hidden_states_finite(
     train_df = synthetic_df.slice(0, split)
     val_df = synthetic_df.slice(split)
 
-    _, _classifier, train_hidden, val_hidden, history = train_gru(
+    _, _classifier, train_hidden, val_hidden, history, _mean, _std, _gru_cols = train_gru(
         gru_config, train_df, val_df
     )
 

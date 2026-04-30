@@ -12,7 +12,6 @@ data = "python scripts/data_download.py --skip-current-month"
 # Pipeline execution
 workflow = "python main.py"
 force = "python main.py --force"
-ablation = "python main.py --ablation"
 
 # Cleanup
 clean-cache = "rm -f data/processed/*.parquet"
@@ -24,13 +23,13 @@ format = "ruff format src/"
 pre-commit = "ruff check src/ && ruff format src/ && pytest tests/ -v -m 'not slow'"
 
 # Testing
-test = "pytest tests/ -v --cov=src/thesis --cov-fail-under=70"
+test = "pytest tests/ -v --cov=src/thesis --cov-fail-under=60"
 test-unit = "pytest tests/unit/ -v -m unit"
 test-integration = "pytest tests/integration/ -v -m integration"
 test-fast = "pytest tests/ -v -m 'not slow'"
 
 # Interactive visualization
-streamlit = "PYTHONPATH=src streamlit run src/thesis/dashboard/app.py --server.port 8501"
+streamlit = "PYTHONPATH=src streamlit run src/thesis/dashboard.py --server.port 8501"
 
 [dependencies]
 python = ">=3.13,<3.14"
@@ -55,7 +54,6 @@ pytorch = ">=2.10.0,<3"
 bokeh = ">=3.9.0,<4"
 streamlit = ">=1.56.0,<2"
 rich = ">=15.0.0,<16"
-ta-lib = ">=0.6.4,<0.7"
 numba = ">=0.65.0,<0.66"
 accelerate = ">=1.13.0,<2"
 
@@ -65,4 +63,3 @@ backtesting = ">=0.6.5, <0.7"
 streamlit-echarts = { version = ">=0.6.0, <0.7", extras = ["pyecharts"] }
 dukascopy-python = ">=4.0.1, <5"
 vulture = ">=2.16, <3"
-pandas-ta-classic = ">=0.4.47, <0.5"

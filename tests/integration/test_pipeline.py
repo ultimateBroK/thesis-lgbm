@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 from thesis.config import Config
 from thesis.pipeline import run_pipeline
 from thesis.features import generate_features
-from thesis.labeling import generate_labels
+from thesis.labels import generate_labels
 
 
 def create_synthetic_ohlcv(
@@ -86,6 +86,9 @@ def pipeline_config(temp_pipeline_dir: Path) -> Config:
     )
     config.paths.model = str(temp_pipeline_dir / "models" / "lightgbm_model.pkl")
     config.paths.gru_model = str(temp_pipeline_dir / "models" / "gru_model.pt")
+    config.paths.stack_bundle = str(
+        temp_pipeline_dir / "models" / "stacking_bundle.joblib"
+    )
     config.paths.predictions = str(
         temp_pipeline_dir / "data" / "predictions" / "final_predictions.parquet"
     )
@@ -252,8 +255,8 @@ def test_pipeline_disabled_stages_skipped(pipeline_config: Config) -> None:
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_pipeline_split_data_stage(pipeline_config: Config) -> None:
-    """Test that split data stage produces train/val/test files."""
+def test_pipeline_labels_produced(pipeline_config: Config) -> None:
+    """Test that labels stage produces the labels file."""
     # Create full pipeline through labels
     setup_ohlcv_data(pipeline_config, n_rows=500)
 
@@ -261,76 +264,49 @@ def test_pipeline_split_data_stage(pipeline_config: Config) -> None:
     generate_features(pipeline_config)
     generate_labels(pipeline_config)
 
-    # Now run split
+    # Now verify labels exist
     pipeline_config.workflow.run_feature_engineering = False
     pipeline_config.workflow.run_label_generation = False
-    pipeline_config.workflow.run_data_splitting = True
     pipeline_config.workflow.run_model_training = False
     pipeline_config.workflow.run_backtest = False
     pipeline_config.workflow.run_reporting = False
 
     run_pipeline(pipeline_config)
 
-    # All split files should exist
-    assert Path(pipeline_config.paths.train_data).exists()
-    assert Path(pipeline_config.paths.val_data).exists()
-    assert Path(pipeline_config.paths.test_data).exists()
+    # Labels should exist
+    assert Path(pipeline_config.paths.labels).exists()
 
-    # Check that splits are non-empty
-    train_df = pl.read_parquet(pipeline_config.paths.train_data)
-    val_df = pl.read_parquet(pipeline_config.paths.val_data)
-    test_df = pl.read_parquet(pipeline_config.paths.test_data)
-
-    assert len(train_df) > 0
-    assert len(val_df) > 0
-    assert len(test_df) > 0
+    # Check that labels are non-empty
+    labels_df = pl.read_parquet(pipeline_config.paths.labels)
+    assert len(labels_df) > 0
+    assert "label" in labels_df.columns
 
 
 @pytest.mark.integration
 @pytest.mark.slow
 def test_pipeline_end_to_end_smoke(pipeline_config: Config) -> None:
-    """Smoke test: full pipeline runs without errors.
+    """Smoke test: full pipeline runs without errors (through features + labels only).
 
-    All outputs are written to the temp directory via session_dir.
-    Does NOT create any files in the project's results/ directory.
+    Walk-forward training requires more data than synthetic provides,
+    so this test validates the data processing pipeline stages (0-2).
     """
     # Create OHLCV data with more rows to cover all date ranges
-    n_rows = 1000  # ~42 days of hourly data
+    n_rows = 500  # ~21 days of hourly data
     setup_ohlcv_data(pipeline_config, n_rows=n_rows)
 
-    # Adjust date ranges to match synthetic data (starting 2020-01-01)
-    # Split: 50% train (~21 days), 25% val (~10 days), 25% test (~10 days)
-    pipeline_config.splitting.train_start = "2020-01-01"
-    pipeline_config.splitting.train_end = "2020-01-21 23:59:59"
-    pipeline_config.splitting.val_start = "2020-01-22"
-    pipeline_config.splitting.val_end = "2020-02-01 23:59:59"
-    pipeline_config.splitting.test_start = "2020-02-02"
-    pipeline_config.splitting.test_end = "2020-02-15 23:59:59"
-    pipeline_config.splitting.purge_bars = 2  # Small purge for testing
-
-    # Run full pipeline with minimal model
-    pipeline_config.model.n_estimators = 3
-    pipeline_config.model.num_leaves = 3
-    pipeline_config.gru.epochs = 2  # Minimal GRU training for speed
-    pipeline_config.gru.patience = 1
-
-    # Enable all stages
+    # Run only data processing stages (walk-forward needs large dataset)
     pipeline_config.workflow.run_feature_engineering = True
     pipeline_config.workflow.run_label_generation = True
-    pipeline_config.workflow.run_data_splitting = True
-    pipeline_config.workflow.run_model_training = True
-    pipeline_config.workflow.run_backtest = True
-    pipeline_config.workflow.run_reporting = True
+    pipeline_config.workflow.run_model_training = False
+    pipeline_config.workflow.run_backtest = False
+    pipeline_config.workflow.run_reporting = False
 
     # Should not raise any exception
     run_pipeline(pipeline_config)
 
-    # Verify outputs exist within temp session_dir
+    # Verify outputs exist
     assert Path(pipeline_config.paths.features).exists()
     assert Path(pipeline_config.paths.labels).exists()
-    assert Path(pipeline_config.paths.train_data).exists()
-    assert Path(pipeline_config.paths.backtest_results).exists()
-    assert Path(pipeline_config.paths.report).exists()
 
 
 @pytest.mark.integration
@@ -342,6 +318,9 @@ def test_pipeline_stage_dependencies(pipeline_config: Config) -> None:
 
     pipeline_config.workflow.run_feature_engineering = False
     pipeline_config.workflow.run_label_generation = True
+    pipeline_config.workflow.run_model_training = False
+    pipeline_config.workflow.run_backtest = False
+    pipeline_config.workflow.run_reporting = False
 
     # Should raise FileNotFoundError because features don't exist
     with pytest.raises(FileNotFoundError):
@@ -350,17 +329,77 @@ def test_pipeline_stage_dependencies(pipeline_config: Config) -> None:
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_pipeline_split_without_labels_fails(pipeline_config: Config) -> None:
-    """Test that split stage fails without labels."""
+def test_pipeline_labels_without_features_fails(pipeline_config: Config) -> None:
+    """Test that labels stage fails without features."""
     setup_ohlcv_data(pipeline_config, n_rows=100)
 
-    # Create features but not labels
-    generate_features(pipeline_config)
-
     pipeline_config.workflow.run_feature_engineering = False
-    pipeline_config.workflow.run_label_generation = False
-    pipeline_config.workflow.run_data_splitting = True
+    pipeline_config.workflow.run_label_generation = True
+    pipeline_config.workflow.run_model_training = False
+    pipeline_config.workflow.run_backtest = False
+    pipeline_config.workflow.run_reporting = False
 
-    # Should raise FileNotFoundError because labels don't exist
+    # Should raise FileNotFoundError because features don't exist
     with pytest.raises(FileNotFoundError):
         run_pipeline(pipeline_config)
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_pipeline_true_stacking_smoke(pipeline_config: Config) -> None:
+    """Sliding true stacking should produce deployable and OOF artifacts."""
+    setup_ohlcv_data(pipeline_config, n_rows=1200)
+
+    pipeline_config.model.architecture = "stacking"
+    pipeline_config.model.use_optuna = False
+    pipeline_config.model.n_estimators = 10
+    pipeline_config.model.num_leaves = 8
+    pipeline_config.model.max_depth = 4
+
+    pipeline_config.gru.sequence_length = 12
+    pipeline_config.gru.hidden_size = 8
+    pipeline_config.gru.batch_size = 16
+    pipeline_config.gru.epochs = 2
+    pipeline_config.gru.patience = 1
+
+    pipeline_config.validation.method = "sliding"
+    pipeline_config.validation.train_window_bars = 240
+    pipeline_config.validation.test_window_bars = 80
+    pipeline_config.validation.step_bars = 80
+    pipeline_config.validation.purge_bars = 5
+    pipeline_config.validation.embargo_bars = 5
+    pipeline_config.validation.min_train_bars = 200
+    pipeline_config.validation.wf_optuna_trials = 0
+
+    pipeline_config.stacking.min_meta_train_folds = 1
+    pipeline_config.stacking.min_meta_train_rows = 60
+    pipeline_config.stacking.final_refit = True
+
+    pipeline_config.backtest.confidence_threshold = 0.0
+    pipeline_config.backtest.atr_tp_multiplier = 1.0
+
+    run_pipeline(pipeline_config)
+
+    assert Path(pipeline_config.paths.predictions).exists()
+    assert Path(pipeline_config.paths.stack_bundle).exists()
+    assert Path(pipeline_config.paths.model).exists()
+    assert Path(pipeline_config.paths.gru_model).exists()
+    assert Path(pipeline_config.paths.backtest_results).exists()
+
+    base_oof_path = (
+        Path(pipeline_config.paths.session_dir)
+        / "predictions"
+        / "base_oof_predictions.parquet"
+    )
+    assert base_oof_path.exists()
+
+    preds = pl.read_parquet(pipeline_config.paths.predictions)
+    assert len(preds) > 0
+    assert {
+        "timestamp",
+        "true_label",
+        "pred_label",
+        "pred_proba_class_minus1",
+        "pred_proba_class_0",
+        "pred_proba_class_1",
+    }.issubset(preds.columns)

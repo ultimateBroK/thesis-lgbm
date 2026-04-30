@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from thesis.labeling import _compute_labels
+from thesis.labels import _compute_labels
 
 
 @pytest.mark.unit

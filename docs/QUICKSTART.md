@@ -92,24 +92,33 @@ This command:
 
 ```mermaid
 flowchart TD
-    S1["Convert ticks → OHLCV"] --> S2["Generate 11 indicators"]
-    S2 --> S3["Create buy/sell/hold labels"]
-    S3 --> S4["Split train/val/test"]
-    S4 --> S5["Train GRU + LightGBM"]
-    S5 --> S6["Run CFD backtest"]
-    S6 --> S7["Generate report + charts"]
+    S0["Stage 0: Convert ticks → OHLCV"] --> S1["Stage 1: Generate 11 indicators"]
+    S1 --> S2["Stage 2: Triple-barrier labeling"]
+    S2 --> S3["Stage 3: Walk-forward training<br/><i>GRU + LightGBM per window</i>"]
+    S3 --> S5["Stage 5: CFD backtest<br/><i>on concatenated OOF predictions</i>"]
+    S5 --> S6["Stage 6: Report + charts"]
 
+    style S0 fill:#2563EB,color:#fff
     style S1 fill:#2563EB,color:#fff
     style S2 fill:#2563EB,color:#fff
-    style S3 fill:#2563EB,color:#fff
-    style S4 fill:#2563EB,color:#fff
-    style S5 fill:#7C3AED,color:#fff
+    style S3 fill:#7C3AED,color:#fff
+    style S5 fill:#059669,color:#fff
     style S6 fill:#059669,color:#fff
-    style S7 fill:#059669,color:#fff
 ```
 
-> **First run:** This may take 10-30 minutes depending on your hardware.
+> **First run:** This may take 10–30 minutes depending on your hardware.
 > **Subsequent runs:** Stages are cached — only changed stages re-run.
+
+### Architecture Choice
+
+The pipeline supports two model architectures, controlled by `model.architecture` in `config.toml`:
+
+| Architecture | Description | Config |
+|---|---|---|
+| **hybrid** (default) | GRU hidden states concatenated with static features → LightGBM | `model.architecture = "hybrid"` |
+| **stacking** | Full stacking ensemble — GRU and LightGBM as base learners, meta-learner on top | `model.architecture = "stacking"` |
+
+Both architectures use walk-forward sliding-window validation when `validation.method = "sliding"`.
 
 ---
 
@@ -126,14 +135,26 @@ results/XAUUSD_1H_YYYYMMDD_HHMMSS/
 | File | What It Contains |
 |------|-----------------|
 | `reports/thesis_report.md` | Full written report with metrics and charts |
+| `reports/walk_forward_history.json` | Window boundaries, OOF prediction counts |
 | `backtest/backtest_results.json` | Trading metrics (win rate, return, Sharpe, etc.) |
 | `backtest/trades_detail.csv` | Trade-by-trade breakdown (entry/exit, PnL, duration) |
 | `backtest/equity_curve.csv` | Equity curve data points over time |
 | `backtest/backtest_chart.html` | Interactive Bokeh equity chart |
-| `reports/charts/` | All visualization charts (12 charts) |
+| `reports/charts/` | All visualization charts |
 | `config/config_snapshot.toml` | The exact config used for this run |
 | `config/session_info.json` | Session metadata (run ID, timestamps, stage durations) |
 | `logs/pipeline.log` | Detailed execution log (ANSI-stripped) |
+
+### Stacking-Only Artifacts
+
+When using `model.architecture = "stacking"`, additional files appear:
+
+| File | What It Contains |
+|------|-----------------|
+| `models/stacking_bundle.joblib` | Deployment bundle (model paths, class order, feature columns) |
+| `models/base_oof_predictions.parquet` | Out-of-fold predictions from base learners |
+| `models/lgbm_base_model.pkl` | Standalone LightGBM base model |
+| `models/training_history.json` | Per-model training details (iterations, feature cols) |
 
 ### Quick Look at Results
 
@@ -147,30 +168,6 @@ cat results/*/backtest/backtest_results.json
 # List all charts
 ls results/*/reports/charts/*/
 ```
-
----
-
-## Step 6 (Optional): Run Ablation Study
-
-The ablation study compares three model variants:
-
-```bash
-pixi run ablation
-```
-
-```mermaid
-flowchart TD
-    A["Train GRU once"] --> B["LightGBM-only<br/><i>11 features</i>"]
-    A --> C["GRU-only<br/><i>32 hidden states</i>"]
-    A --> D["Combined<br/><i>43 features</i>"]
-    B --> E["Compare<br/>Sharpe / Return / Drawdown"]
-    C --> E
-    D --> E
-
-    style D fill:#059669,color:#fff
-```
-
-Results are saved to `ablation_results.json` in the session folder.
 
 ---
 
@@ -202,6 +199,7 @@ run_data_splitting = false      # Skip splitting
 run_model_training = true       # Run model training
 run_backtest = true             # Run backtest
 run_reporting = true            # Generate report
+force_rerun = false             # Set true to ignore cache
 ```
 
 Then run:
@@ -222,6 +220,7 @@ All settings live in **`config.toml`**. Edit this file to change:
 - Model parameters (learning rate, number of trees, etc.)
 - Backtest parameters (capital, leverage, spread, etc.)
 - GRU architecture (hidden size, layers, sequence length, etc.)
+- Model architecture (`hybrid` vs `stacking`)
 
 See the [Configuration Guide](CONFIGURATION.md) for detailed instructions.
 
@@ -250,7 +249,7 @@ The GRU training uses very little GPU memory. If you still see this error:
 
 ```toml
 [gru]
-batch_size = 32    # Reduce from 64 to 32
+batch_size = 256    # Reduce if needed (e.g., 128 or 64)
 ```
 
 ### "Pipeline says 'skipping' stages"
@@ -306,7 +305,6 @@ pixi run data                   # Download XAU/USD data
 # === Pipeline ===
 pixi run workflow               # Run full pipeline
 pixi run force                  # Force re-run everything
-pixi run ablation               # Pipeline + ablation study
 
 # === Visualization ===
 pixi run streamlit              # Interactive dashboard on :8501

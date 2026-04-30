@@ -26,7 +26,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if (PROJECT_ROOT / "src").exists():
     sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from thesis.ablation import run_ablation
 from thesis.config import load_config
 from thesis.pipeline import run_pipeline
 from thesis.session_paths import configure_session_paths, load_config_for_session
@@ -104,9 +103,6 @@ def main() -> None:
         help="Start from stage N (0-6). Use with --session.",
     )
     parser.add_argument("--force", action="store_true", help="Force re-run all stages")
-    parser.add_argument(
-        "--ablation", action="store_true", help="Run ablation study after pipeline"
-    )
     args = parser.parse_args()
 
     # Load config
@@ -220,12 +216,6 @@ def main() -> None:
     # Run pipeline and ablation with error handling
     try:
         run_pipeline(config)
-
-        # Run ablation study if requested
-        if args.ablation:
-            logger.info("Running ablation study...")
-            run_ablation(config)
-
         pipeline_ok = True
     except Exception as e:
         logger.exception("Pipeline failed: %s", e)
@@ -243,6 +233,13 @@ def main() -> None:
             "pipeline_ok": pipeline_ok,
             "log_files": {
                 "plain": "logs/pipeline.log",
+            },
+            "validation": {
+                "method": config.validation.method,
+                "train_window_bars": config.validation.train_window_bars,
+                "test_window_bars": config.validation.test_window_bars,
+                "purge_bars": config.validation.purge_bars,
+                "embargo_bars": config.validation.embargo_bars,
             },
             "data_range": {
                 "train": [

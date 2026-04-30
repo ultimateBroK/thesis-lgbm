@@ -1,9 +1,6 @@
-# Hybrid Stacking (LightGBM) — Trading Signal Configuration
-# Bachelor's Thesis: Nguyen Duc Hieu | Advisor: Hoang Quoc Dung
+# Minimal thesis configuration.
+# Goal: reproducible ML experiment first; trading simulation second.
 
-# =============================================================================
-# DATA
-# =============================================================================
 [data]
 symbol = "XAUUSD"
 timeframe = "1H"
@@ -12,31 +9,17 @@ start_date = "2013-01-01"
 end_date = "2026-03-31"
 tick_size = 0.01
 contract_size = 100
-symbol_download = "XAUUSD"
-asset_class = "fx"
-download_concurrency = 20
-download_max_retries = 7
-download_force = false           # Force re-download even if file exists
-download_skip_current_month = true  # Skip current month (incomplete data)
 
-# =============================================================================
-# SPLITTING
-# =============================================================================
-[splitting]
-train_start = "2013-01-01"
-train_end = "2022-03-31 23:59:59"
-val_start = "2022-04-01"
-val_end = "2024-03-31 23:59:59"
-test_start = "2024-04-01"
-test_end = "2026-03-31 23:59:59"
+[validation]
+method = "sliding"
+train_window_bars = 26280   # ~3 years of H1 bars
+test_window_bars = 4380     # ~6 months of H1 bars
+step_bars = 4380
 purge_bars = 25
-embargo_bars = 50                     # gap between train and validation sets
-embargo_scale_by_timeframe = true     # Keep same elapsed embargo duration when timeframe changes
-embargo_reference_timeframe = "1H"   # base timeframe for embargo duration
+embargo_bars = 50
+min_train_bars = 10000
+wf_optuna_trials = 0        # fixed params: faster and more reproducible
 
-# =============================================================================
-# FEATURES
-# =============================================================================
 [features]
 rsi_period = 14
 atr_period = 14
@@ -44,81 +27,84 @@ macd_fast = 12
 macd_slow = 26
 macd_signal = 9
 correlation_threshold = 0.75
+static_feature_cols = [
+  # --- Price structure ---
+  "atr_14",
+  "price_dist_ratio",
+  "close_vs_ema_34",
+  "ema34_vs_ema89",
+  "pivot_position",
+  "price_position_20",
+  "atr_percentile",
+  # --- Candle / bar structure ---
+  "candle_body_ratio",
+  "upper_wick_ratio",
+  "lower_wick_ratio",
+  "gap_ratio",
+  # --- Momentum from price ---
+  "return_1h",
+  "return_4h",
+  "high_low_range_20",
+  "consecutive_bars",
+  # --- Minimal indicators ---
+  "rsi_14",
+  "macd_hist",
+  "trend_strength",
+  # --- Session ---
+  "sess_london",
+  "sess_overlap",
+  # --- Volume ---
+  "volume_zscore_20",
+]
 
-# =============================================================================
-# LABELS — Triple Barrier
-# =============================================================================
 [labels]
 atr_multiplier = 2.5
-horizon_bars = 12
-num_classes = 3
-min_atr = 5.0
+horizon_bars = 24
 
-# =============================================================================
-# MODEL — LightGBM (receives GRU hidden states + static features)
-# =============================================================================
 [model]
-use_optuna = true
-optuna_trials = 50
-optuna_timeout = 3600
-num_leaves = 48
-max_depth = 4
-learning_rate = 0.03
-n_estimators = 150
-min_child_samples = 200
-subsample = 0.70
-subsample_freq = 5
-feature_fraction = 0.60
-reg_alpha = 0.1
-reg_lambda = 10.0
-early_stopping_rounds = 50
+architecture = "hybrid"
+use_optuna = false
+num_leaves = 31
+max_depth = 6
+learning_rate = 0.02
+n_estimators = 500
+min_child_samples = 50
+subsample = 0.80
+feature_fraction = 0.70
+reg_lambda = 5.0
+early_stopping_rounds = 40
 
-# =============================================================================
-# BACKTEST — via backtesting.py
-# =============================================================================
-[backtest]
-initial_capital = 10000.0
-leverage = 30                       # CFD leverage ratio
-spread_ticks = 35                   # spread in ticks
-slippage_ticks = 5                  # slippage in ticks
-commission_per_lot = 10.0           # Round-trip commission per lot
-atr_stop_multiplier = 1.0          # ATR multiplier for stop-loss distance
-lots_per_trade = 0.2                # fixed lot size per trade
-confidence_threshold = 0.40         # Min predicted probability to trade (0 = disabled)
-
-# =============================================================================
-# GRU — Feature Extractor
-# =============================================================================
 [gru]
-input_size = 10       # must match len(feature_cols)
-feature_cols = ["log_returns", "rsi_14", "atr_14", "atr_ratio", "macd_hist", "atr_percentile", "sess_asia", "sess_london", "sess_ny_pm", "sess_overlap"]
+feature_cols = ["log_returns", "atr_14", "close_vs_ema_34", "ema34_vs_ema89", "candle_body_ratio", "return_1h", "return_4h", "price_position_20"]
 hidden_size = 64
 num_layers = 2
 sequence_length = 48
-dropout = 0.1
-learning_rate = 0.001
-batch_size = 64
+dropout = 0.3
+learning_rate = 0.0005
+batch_size = 256
 epochs = 50
 patience = 15
+min_epochs = 5
 
-# =============================================================================
-# WORKFLOW
-# =============================================================================
+[backtest]
+initial_capital = 10000.0
+leverage = 10
+spread_ticks = 35
+slippage_ticks = 5
+commission_per_lot = 10.0
+atr_stop_multiplier = 1.0
+atr_tp_multiplier = 2.0
+lots_per_trade = 0.1
+min_lots = 0.05
+max_lots = 0.1
+confidence_threshold = 0.55
+max_drawdown_cutoff = 0.30
+
 [workflow]
-run_data_pipeline = true
-run_feature_engineering = true
-run_label_generation = true
-run_data_splitting = true
-run_model_training = true
-run_backtest = true
-run_reporting = true
 force_rerun = false
 random_seed = 2024
 n_jobs = -1
 
-# =============================================================================
-# PATHS
-# =============================================================================
 [paths]
 data_raw = "data/raw/XAUUSD"
 data_processed = "data/processed"

@@ -1,14 +1,17 @@
 # Hybrid GRU + LightGBM
 
-## XAU/USD Trading Signal Prediction
+## Reproducible ML Pipeline for Time-Series Signal Prediction
 
 [![Python 3.13](https://img.shields.io/badge/Python-3.13-blue.svg)](https://www.python.org/)
 [![Pixi](https://img.shields.io/badge/Pixi-Package%20Manager-orange.svg)](https://pixi.sh/)
 [![LightGBM](https://img.shields.io/badge/LightGBM-4.6-green.svg)](https://lightgbm.readthedocs.io/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.10-red.svg)](https://pytorch.org/)
 
-**Machine-learning pipeline for gold (XAU/USD) trading signal prediction**
-using a hybrid GRU + LightGBM architecture.
+**Student-friendly machine-learning pipeline** for time-series classification using
+a compact hybrid GRU + LightGBM architecture (stacking variant available).
+XAU/USD is used as the case study, but the thesis focus is data processing,
+leakage-safe validation, model training, and reproducible evaluation rather than
+financial strategy design.
 
 Bachelor's thesis — Thuy Loi University
 
@@ -18,12 +21,12 @@ Bachelor's thesis — Thuy Loi University
 
 | Document | Description |
 |:---------|:------------|
-| 🧭 [Core vs optional](docs/CORE_VS_OPTIONAL.md) | What the thesis pipeline requires vs dashboard/ablation extras |
 | 📐 [Architecture](docs/ARCHITECTURE.md) | High-level overview — pipeline stages, hybrid model design, data flow |
 | 🚀 [Quickstart](docs/QUICKSTART.md) | Step-by-step guide to install, run, and view results |
 | 📊 [Evaluation](docs/EVALUATION.md) | How to read your results — metrics explained in plain language |
+| ⚙️ [Features & Configuration](docs/CONFIGURATION.md) | What the model sees and the small set of parameters worth changing |
+| 🔧 [Tuning Guide](docs/TUNING.md) | How to improve results by adjusting config parameters |
 | 📋 [Roadmap](docs/ROADMAP.md) | Completed features vs. pending items |
-| ⚙️ [Features & Configuration](docs/CONFIGURATION.md) | What the model sees and how to tune every parameter |
 | 📖 [Glossary](docs/GLOSSARY.md) | Plain-English definitions for all technical terms |
 
 ### Where to start?
@@ -31,7 +34,7 @@ Bachelor's thesis — Thuy Loi University
 | You are... | Read this |
 |------------|-----------|
 | New to the project | [Architecture](docs/ARCHITECTURE.md) → [Quickstart](docs/QUICKSTART.md) → [Evaluation](docs/EVALUATION.md) |
-| Looking to improve results | [Configuration](docs/CONFIGURATION.md) — read the **Features** section first |
+| Looking to improve results | [Tuning](docs/TUNING.md) → [Configuration](docs/CONFIGURATION.md) — read the **Features** section first |
 | Confused by a term | [Glossary](docs/GLOSSARY.md) |
 
 ---
@@ -54,20 +57,21 @@ Results are saved to `results/XAUUSD_1H_<timestamp>/`.
 flowchart LR
     A["Raw Ticks"] --> B["Prepare<br/>OHLCV"]
     B --> C["Features<br/>11 indicators"]
-    C --> D["Labels<br/>Triple Barrier"]
-    D --> E["Split<br/>Train/Val/Test"]
+    C --> D["Labels<br/>3-class target"]
+    D --> E["Walk-Forward<br/>Sliding Windows"]
     E --> F["GRU<br/>32 hidden"]
-    E --> G["Static<br/>11 features"]
-    F --> H["LightGBM<br/>43 features"]
+    E --> G["Static<br/>11 core features"]
+    F --> H["LightGBM<br/>compact hybrid features"]
     G --> H
-    H --> I["Backtest<br/>CFD Sim"]
-    H --> J["Report<br/>Charts"]
+    H --> I["ML Report<br/>Accuracy/F1/Baseline"]
+    H --> J["Backtest<br/>Application Demo"]
 ```
 
 The hybrid model works in two steps:
 
-1. **GRU** reads 48 hours of price history and outputs a **32-number summary** of temporal patterns.
-2. **LightGBM** combines those 32 numbers with **11 technical indicators** (43 features total) and predicts: **Long**, **Flat**, or **Short**.
+1. **GRU** reads 48 hours of normalized history and outputs a **32-number temporal embedding**.
+2. **LightGBM** combines that embedding with **11 stable tabular indicators** and predicts: **Short**, **Hold**, or **Long**.
+3. **Evaluation** compares against majority and directional baselines before showing the backtest as an application demo.
 
 ---
 
@@ -77,9 +81,9 @@ The hybrid model works in two steps:
 |---------|-------------|
 | `pixi run workflow` | Run full pipeline (cached) |
 | `pixi run force` | Force re-run all stages |
-| `pixi run ablation` | Pipeline + model comparison study |
 | `pixi run streamlit` | Interactive Streamlit dashboard (:8501) |
 | `pixi run test` | Run tests with coverage |
+| `pixi run test-fast` | Run non-slow tests |
 | `pixi run lint` | Check code style |
 | `pixi run format` | Auto-format code |
 | `pixi run pre-commit` | Lint + format + fast tests |
@@ -93,11 +97,12 @@ The hybrid model works in two steps:
 | Asset | XAU/USD (Gold / US Dollar) |
 | Timeframe | 1 hour (H1) |
 | Data range | January 2018 – March 2026 |
+| Validation | Walk-forward sliding window (3-year train, 6-month test) |
 | Model | GRU (32-dim) → LightGBM (43 features) |
 | Features | 11 technical indicators + 32 GRU hidden states |
 | Labels | Triple Barrier (Long / Flat / Short) |
 | Charts | 12 static (matplotlib) + interactive (Streamlit/ECharts) |
-| Backtest | CFD with spread, commission, leverage, risk management |
+| Backtest | Lightweight application demo with fixed costs and capped risk |
 | Python | 3.13 (Pixi) |
 
 ---
@@ -110,22 +115,23 @@ thesis/
 ├── main.py                  # Entry point (CLI)
 ├── scripts/
 │   └── data_download.py     # Tick data downloader
-├── src/thesis/              # Source code
+├── src/thesis/              # Source code (flat modules)
 │   ├── config.py            # TOML config loader + dataclasses
-│   ├── pipeline.py          # Stage orchestration (0–6)
-│   ├── ablation.py          # Model comparison study
-│   ├── ui.py                # UI utilities
-│   ├── agg/                 # Tick → OHLCV aggregation (Stage 0)
-│   ├── features/            # Technical indicators (Stage 1)
-│   ├── labeling/            # Triple-barrier labeling (Stage 2)
-│   ├── splitting/           # Train/val/test split + correlation (Stage 3)
-│   ├── gru/                 # GRU feature extractor (arch, dataset, train, inference)
-│   ├── hybrid/              # GRU + LightGBM hybrid training (Stage 4)
-│   ├── backtest/            # CFD trading simulation (Stage 5)
-│   ├── report/              # Report generation (Stage 6)
-│   ├── plots/               # Static matplotlib/seaborn charts (12 total)
-│   ├── charts/              # Interactive ECharts / pyecharts builders
-│   └── dashboard/           # Streamlit dashboard app
+│   ├── pipeline.py          # Stage orchestration (0–3, 5–6 walk-forward)
+│   ├── data.py              # Tick → OHLCV (Stage 0)
+│   ├── features.py          # 11 technical indicators (Stage 1)
+│   ├── labels.py            # Triple-barrier labeling (Stage 2)
+│   ├── validation.py        # Walk-forward window generation
+│   ├── gru.py               # GRU feature extractor
+│   ├── model.py             # LightGBM training (fixed + Optuna)
+│   ├── backtest.py          # CFD trading simulation (Stage 5)
+│   ├── report.py            # Report + chart generation (Stage 6)
+│   ├── constants.py         # Shared constants
+│   ├── session_paths.py     # Session directory setup
+│   ├── charts.py            # Interactive ECharts / pyecharts
+│   ├── dashboard.py         # Streamlit dashboard
+│   ├── ui.py                # Rich console utilities
+│   └── zones.py             # Metric zone classification
 ├── tests/                   # Test suite
 ├── data/raw/XAUUSD/         # Raw tick data
 ├── data/processed/          # Generated parquet files
@@ -140,7 +146,7 @@ thesis/
 <details>
 <summary>📄 Nhấn để mở tài liệu luận văn tiếng Việt</summary>
 
-# Ứng dụng mô hình Hybrid Stacking dự báo tín hiệu giao dịch CFD Vàng (XAU/USD)
+# Xây dựng pipeline ML Hybrid dự báo tín hiệu chuỗi thời gian
 
 > Đồ án tốt nghiệp — Trường Đại học Thuỷ Lợi, Khoa Công nghệ Thông tin
 
@@ -155,12 +161,12 @@ thesis/
 
 ## Tổng quan
 
-Xây dựng pipeline end-to-end dự báo tín hiệu giao dịch **CFD Vàng (XAU/USD)** trên khung H1 bằng kiến trúc **Hybrid Stacking (GRU + LightGBM)**.
+Xây dựng pipeline end-to-end cho bài toán phân loại chuỗi thời gian trên dữ liệu **XAU/USD H1** bằng kiến trúc **Hybrid GRU + LightGBM**. Trọng tâm của đồ án là quy trình ML chuẩn: xử lý dữ liệu, tránh rò rỉ, huấn luyện mô hình, đánh giá bằng baseline và trình bày kết quả có thể tái lập.
 
 ```mermaid
 flowchart LR
     GRU["GRU<br/>(chuỗi 48 nến)"] -->|"32 hidden"| Stack
-    LGB["LightGBM<br/>(11 features)"] -->|"xác suất"| Stack
+    LGB["LightGBM<br/>(11 core features)"] -->|"xác suất"| Stack
     Stack["Hybrid Model"] --> Pred["3 nhãn<br/>Mua / Trung tính / Bán"]
 ```
 
@@ -168,12 +174,11 @@ flowchart LR
 
 1. Thu thập và chuẩn hóa dữ liệu CFD Vàng H1 (01/2018 – 03/2026)
 2. Làm sạch dữ liệu: lọc nến bất thường, bỏ cuối tuần, xử lý gap phiên
-3. Chia tập theo thời gian (không xáo trộn): Train (2018–2022) / Val (2023) / OOS (2024–03/2026)
-4. Ngăn rò rỉ dữ liệu bằng Purging + Embargo
-5. Xây dựng đặc trưng kỹ thuật + định lượng bằng Feature Importance / SHAP
-6. Huấn luyện mô hình GRU nền + LightGBM nền
-7. Xây dựng Hybrid Stacking
-8. Giải thích mô hình (SHAP) + Backtest trên OOS
+3. Chia tập bằng **Walk-Forward Sliding Window** (cửa sổ 3 năm train, 6 tháng test, bước nhảy 6 tháng) với Purging + Embargo chống rò rỉ
+4. Xây dựng đặc trưng kỹ thuật + định lượng bằng Feature Importance / SHAP
+5. Huấn luyện mô hình GRU nền + LightGBM nền
+6. Xây dựng kiến trúc **Hybrid** (mặc định) hoặc **Stacking** (qua `model.architecture = "stacking"`)
+7. Giải thích mô hình + backtest minh họa ứng dụng trên OOS
 
 ## Đặc trưng kỹ thuật
 
@@ -194,8 +199,8 @@ flowchart LR
 | **0** | Không chạm TP/SL đến hết horizon | **Trung tính** |
 | **-1** | Giá chạm SL trước TP | **Bán** |
 
-- **Take Profit:** `Close[t] + 1.5 × ATR`
-- **Stop Loss:** `Close[t] - 1.5 × ATR`
+- **Take Profit:** `Close[t] + atr_multiplier × atr_tp_multiplier × ATR = Close[t] + 2.5 × 2.0 × ATR = Close[t] + 5.0 × ATR`
+- **Stop Loss:** `Close[t] − atr_multiplier × atr_stop_multiplier × ATR = Close[t] − 2.5 × 1.0 × ATR = Close[t] − 2.5 × ATR`
 - **Horizon:** h = 24 nến
 
 ## Tiến độ thực hiện
@@ -207,7 +212,7 @@ flowchart LR
 | 3 | Tính chỉ báo, gán nhãn, chia tập | Dữ liệu sẵn sàng |
 | 4 | Huấn luyện LightGBM | Mô hình + kết quả ban đầu |
 | 5 | Huấn luyện GRU + Hybrid | Hybrid hoàn chỉnh |
-| 6 | So sánh mô hình, backtest, SHAP | Số liệu đầy đủ |
+| 6 | Đánh giá walk-forward, backtest, SHAP | Số liệu đầy đủ |
 | 7–10 | Viết báo cáo + thuyết trình | Báo cáo cuối + slide |
 
 ## Yêu cầu hệ thống
@@ -221,11 +226,11 @@ flowchart LR
 
 ## Hướng phát triển
 
-1. Ensemble nâng cao, weighted voting
-2. Sentiment analysis, chỉ số vĩ mô
-3. Dynamic position sizing, VaR-based limits
-4. Real-time WebSocket prediction
-5. Đa tài sản: EUR/USD, GBP/USD, XAG/USD
+1. So sánh kết quả walk-forward giữa các cửa sổ để đánh giá tính ổn định
+2. Probability calibration để xác suất dự báo ổn định hơn
+3. Phân tích feature importance/SHAP cho phần giải thích mô hình
+4. Đóng gói pipeline thành dashboard demo
+5. Thử nghiệm thêm bộ dữ liệu chuỗi thời gian khác
 
 *Cập nhật lần cuối: Tháng 4/2026*
 

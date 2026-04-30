@@ -9,7 +9,7 @@ from sklearn.model_selection import TimeSeriesSplit
 
 from thesis.config import Config
 from thesis.constants import EXCLUDE_COLS
-from thesis.gru.dataset import prepare_sequences
+from thesis.gru import prepare_sequences
 
 
 def test_exclude_cols_contains_target_and_lookahead_fields() -> None:

@@ -1,497 +1,256 @@
-# Features & Configuration Guide
+# Configuration Guide
 
-> First, understand what the model sees. Then, learn how to tune it.
+This project exposes only the parameters that matter for a student ML thesis.
+Most financial-engineering details stay as code defaults so the report focuses
+on reproducible modelling, not overfitting a trading system.
 
----
+## Scope
 
-## Part 1: Features — What the Model Sees
+The core experiment is:
 
-Before you change any settings, you need to understand **what data the model works with**.
-The model uses **43 features** in total — 32 from the GRU and 11 static technical indicators.
+1. Build OHLCV bars from raw data.
+2. Create deterministic technical features.
+3. Generate a 3-class target: `Short`, `Hold`, `Long`.
+4. Validate with walk-forward time-series splits and purge/embargo gaps.
+5. Train a compact hybrid model: GRU temporal embedding + LightGBM classifier,
+   or a full stacking ensemble (configurable via `model.architecture`).
+6. Report ML metrics first: accuracy, F1, baseline comparison, confusion matrix.
+7. Use backtest metrics only as an application demo.
 
-```mermaid
-flowchart LR
-    subgraph GRU_INPUT["GRU Input (per bar)"]
-        LR["log_returns"]
-        RSI["rsi_14"]
-        ATR["atr_14"]
-        MACD["macd_hist"]
-    end
+## Model Inputs
 
-    subgraph GRU_SEQ["48-bar window"]
-        B1["Bar 1"]
-        B2["Bar 2"]
-        BD["..."]
-        B48["Bar 48"]
-    end
+GRU sequence input:
 
-    GRU_INPUT --> GRU_SEQ
-    GRU_SEQ --> GRU["GRU<br/>2 layers × 32 hidden"]
-    GRU --> HS["32 hidden states"]
-
-    subgraph STATIC["Static Features"]
-        F1["rsi_14"]
-        F2["atr_14"]
-        F3["macd_hist"]
-        F4["atr_ratio"]
-        F5["price_dist_ratio"]
-        F6["pivot_position"]
-        F7["atr_percentile"]
-        F8["sess_asia"]
-        F9["sess_london"]
-        F10["sess_overlap"]
-        F11["sess_ny_pm"]
-    end
-
-    HS --> LGBM["LightGBM<br/>43 features"]
-    STATIC --> LGBM
-    LGBM --> PRED["Long / Flat / Short"]
-
-    style GRU fill:#7C3AED,color:#fff
-    style LGBM fill:#059669,color:#fff
-    style PRED fill:#2563EB,color:#fff
+```toml
+feature_cols = ["log_returns", "rsi_14", "atr_14", "macd_hist", "return_4h", "bb_width"]
+sequence_length = 48
+hidden_size = 32
 ```
 
----
-
-### Static Features (11 indicators)
-
-These are calculated directly from price data. Each bar (1 hour) has these 11 values.
-
-| # | Feature Name | What It Measures | Why It Matters |
-|---|-------------|-----------------|---------------|
-| 1 | **rsi_14** | Relative Strength Index (14-bar). Measures if price moved too fast in one direction. | Values above 70 = overbought. Below 30 = oversold. |
-| 2 | **atr_14** | Average True Range (14-bar). Measures how much price moves per bar on average. | High ATR = volatile market. Low ATR = calm market. |
-| 3 | **macd_hist** | MACD Histogram. The difference between MACD line and signal line. | Positive = upward momentum. Negative = downward momentum. |
-| 4 | **atr_ratio** | Short-term ATR (5) divided by long-term ATR (20). | Above 1 = volatility increasing. Below 1 = volatility decreasing. |
-| 5 | **price_dist_ratio** | How far the current price is from the 89-bar EMA, normalized by ATR. | Positive = price above average. Negative = price below average. |
-| 6 | **pivot_position** | Where the price sits between support (S1) and resistance (R1) levels. | 0 = at support. 1 = at resistance. 0.5 = middle. |
-| 7 | **atr_percentile** | Where the current ATR ranks among the last 50 bars (0 to 1). | High = unusually volatile. Low = unusually calm. |
-| 8 | **sess_asia** | Is this bar in the Asian trading session? (1 or 0) | Asian session tends to have lower volatility. |
-| 9 | **sess_london** | Is this bar in the London morning session? (1 or 0) | London session often has strong moves. |
-| 10 | **sess_overlap** | Is this bar in the London-New York overlap? (1 or 0) | Highest volume and volatility. |
-| 11 | **sess_ny_pm** | Is this bar in the New York afternoon? (1 or 0) | Often has reversals or continuation of morning moves. |
-
-> **Note:** Session times are based on New York timezone and adjust for daylight saving time automatically.
-
-### GRU Features (32 hidden states)
-
-The GRU reads a sliding window of **48 consecutive bars** and produces a **32-number summary**.
-Its input is four features per bar:
-
-| # | Feature | What It Is |
-|---|---------|-----------|
-| 1 | **log_returns** | Percentage change in price from one bar to the next |
-| 2 | **rsi_14** | The same RSI used as a static feature |
-| 3 | **atr_14** | Average True Range — volatility measure |
-| 4 | **macd_hist** | MACD histogram — momentum measure |
-
-The GRU's 32 hidden states capture **temporal patterns** — like trends, reversals, and cycles — that individual indicators cannot see.
-
-### Full Feature Space
+LightGBM static input is fixed in code for clarity:
 
 ```text
-32 GRU hidden states  +  11 static indicators  =  43 total features
+rsi_14, atr_14, macd_hist, atr_ratio, return_1h, return_4h,
+bb_width, trend_strength, volume_zscore_20, sess_london, sess_overlap
 ```
 
-LightGBM receives all 43 features and decides: Long, Flat, or Short.
+This keeps the hybrid feature space compact: `32 GRU embedding features + 11
+tabular features`.
 
 ---
 
-## Part 2: Configuration Guide
+## Section Reference
 
-All settings are in **`config.toml`**. This guide explains every section.
+All defaults below match `config.toml` and `src/thesis/config.py` dataclasses.
 
-### Parameter Impact Map
+### `[data]`
 
-```mermaid
-flowchart TD
-    subgraph HIGH["High Impact"]
-        ATR_M["atr_multiplier<br/>(labels)"]
-        HORIZON["horizon_bars<br/>(labels)"]
-    end
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `symbol` | `"XAUUSD"` | Display symbol used in session names and reports. |
+| `timeframe` | `"1H"` | Bar timeframe. |
+| `market_tz` | `"America/New_York"` | Timezone for session-aware feature engineering. |
+| `start_date` | `"2013-01-01"` | Inclusive data start date. |
+| `end_date` | `"2026-03-31"` | Inclusive data end date. |
+| `tick_size` | `0.01` | Minimum price movement. |
+| `contract_size` | `100` | Units per trading lot (for backtest demo). |
 
-    subgraph MED["Medium Impact"]
-        LGBM_P["LightGBM params<br/>(model)"]
-        GRU_P["GRU params<br/>(gru)"]
-        USE_OPT["use_optuna<br/>(model)"]
-    end
+### `[validation]`
 
-    subgraph LOW["Low Impact"]
-        DATA_P["Date ranges<br/>(data/splitting)"]
-        RSI_P["Indicator periods<br/>(features)"]
-        PATHS["File paths<br/>(paths)"]
-    end
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `method` | `"sliding"` | Validation method: `"sliding"` (walk-forward) or `"static"` (fixed split). |
+| `train_window_bars` | `26280` | Training window size (~3 years of H1 bars). |
+| `test_window_bars` | `4380` | Test window size (~6 months of H1 bars). |
+| `step_bars` | `4380` | Step between consecutive windows. Equals `test_window_bars` for non-overlapping folds. |
+| `purge_bars` | `25` | Bars removed at the train/test boundary to prevent label leakage. |
+| `embargo_bars` | `50` | Additional gap after purge for extra safety. |
+| `min_train_bars` | `10000` | Minimum training bars required to produce a window. Windows below this are skipped. |
+| `oof_ensemble` | `true` | Aggregate out-of-fold predictions across all walk-forward windows. |
+| `wf_optuna_trials` | `0` | Optuna hyperparameter trials per walk-forward window. `0` means fixed params (faster, more reproducible). |
 
-    style HIGH fill:#FEE2E2,stroke:#DC2626,color:#000
-    style MED fill:#FEF3C7,stroke:#D97706,color:#000
-    style LOW fill:#DCFCE7,stroke:#059669,color:#000
-```
+### `[features]`
 
----
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `rsi_period` | `14` | RSI lookback period. |
+| `atr_period` | `14` | ATR lookback period. |
+| `macd_fast` | `12` | MACD fast EMA span. |
+| `macd_slow` | `26` | MACD slow EMA span. |
+| `macd_signal` | `9` | MACD signal EMA span. |
+| `correlation_threshold` | `0.75` | Threshold for correlation-based feature filtering. |
+| `static_feature_cols` | *(see below)* | Whitelist of tabular features consumed by LightGBM. |
 
-### `[data]` — Data Settings
+Default `static_feature_cols`:
 
 ```toml
-[data]
-symbol = "XAUUSD"              # Trading instrument
-timeframe = "1H"               # Candle timeframe
-market_tz = "America/New_York" # Timezone for session calculations
-start_date = "2018-01-01"      # Data start
-end_date = "2026-03-31"        # Data end
-tick_size = 0.01               # Minimum price movement
-contract_size = 100            # Ounces per contract
-symbol_download = "XAUUSD"     # Symbol for data downloader
-asset_class = "fx"             # Asset class (fx, commodity, etc.)
-download_concurrency = 20      # Parallel download connections
+static_feature_cols = [
+  "rsi_14", "atr_14", "macd_hist", "atr_ratio",
+  "return_1h", "return_4h", "bb_width", "trend_strength",
+  "volume_zscore_20", "sess_london", "sess_overlap",
+]
 ```
 
-| Parameter | What to Change | Effect |
-|-----------|---------------|--------|
-| `timeframe` | Try `"30min"` or `"4H"` | Changes how much data each bar represents. Smaller = more bars, noisier. Larger = fewer bars, smoother. |
-| `start_date` / `end_date` | Adjust date range | More data = better training, but old data may be less relevant. |
-| `market_tz` | Change if trading a different asset | Affects session dummy calculations. |
+### `[labels]`
 
----
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `atr_multiplier` | `2.5` | ATR multiplier for triple-barrier width. Defines target classes. |
+| `horizon_bars` | `24` | Maximum bars before forced exit if no barrier hit. |
 
-### `[splitting]` — Data Split
+### `[model]`
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `architecture` | `"hybrid"` | Model architecture: `"hybrid"` (GRU embedding + LightGBM) or `"stacking"` (full stacking ensemble). |
+| `use_optuna` | `false` | Enable Optuna hyperparameter search for LightGBM. |
+| `num_leaves` | `31` | LightGBM leaf count. Controls tree complexity. |
+| `max_depth` | `6` | LightGBM max tree depth. |
+| `learning_rate` | `0.05` | LightGBM learning rate. |
+| `n_estimators` | `200` | Maximum boosting iterations. |
+| `min_child_samples` | `150` | Minimum samples per leaf. Higher = more conservative. |
+| `subsample` | `0.80` | Row subsample ratio per iteration. |
+| `feature_fraction` | `0.70` | Feature subsample ratio per iteration. |
+| `reg_lambda` | `5.0` | L2 regularization. |
+| `early_stopping_rounds` | `30` | Stop training if validation metric does not improve for this many rounds. |
+
+### `[gru]`
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `feature_cols` | *(see below)* | Input features for the GRU sequence. |
+| `hidden_size` | `32` | GRU hidden state dimension. |
+| `num_layers` | `2` | Number of stacked GRU layers. |
+| `sequence_length` | `48` | Number of bars in each input sequence. |
+| `dropout` | `0.2` | Dropout between GRU layers. |
+| `learning_rate` | `0.001` | Adam optimizer learning rate. |
+| `batch_size` | `256` | Training batch size. |
+| `epochs` | `25` | Maximum training epochs. |
+| `patience` | `5` | Early-stopping patience (epochs without improvement). |
+| `min_epochs` | `5` | Minimum epochs before early-stopping can trigger. |
+
+Default `feature_cols`:
 
 ```toml
-[splitting]
-train_start = "2018-01-01"
-train_end = "2022-12-31 23:59:59"
-val_start = "2023-01-01"
-val_end = "2023-12-31 23:59:59"
-test_start = "2024-01-01"
-test_end = "2026-03-31 23:59:59"
-purge_bars = 25
-embargo_bars = 50
-embargo_scale_by_timeframe = true
-embargo_reference_timeframe = "1H"
+feature_cols = ["log_returns", "rsi_14", "atr_14", "macd_hist", "return_4h", "bb_width"]
 ```
 
-```mermaid
-gantt
-    title Data Split Timeline
-    dateFormat YYYY-MM
-    axisFormat %Y-%m
+### `[stacking]`
 
-    section Train
-    Training data :2018-01, 2022-12
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `base_models` | `["gru", "lgbm"]` | List of base models that generate meta-features. |
+| `meta_model` | `"lightgbm"` | Meta-learner type for the second stacking stage. |
+| `use_probability_features_only` | `true` | If true, meta-features are base-model class probabilities only (no raw features). |
+| `min_meta_train_folds` | `1` | Minimum walk-forward folds required to train the meta-model. |
+| `min_meta_train_rows` | `500` | Minimum rows required for meta-model training. |
+| `final_refit` | `true` | If true, refit all models on full training data after stacking validation. |
 
-    section Purge
-    25-bar gap :2023-01, 1h
+### `[backtest]`
 
-    section Embargo
-    50-bar gap :2023-01, 3h
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `initial_capital` | `10000.0` | Starting equity in account currency. |
+| `leverage` | `10` | Margin leverage (margin = 1/leverage). |
+| `spread_ticks` | `35` | Spread in ticks applied on entry/exit. |
+| `slippage_ticks` | `5` | Slippage in ticks applied on execution. |
+| `commission_per_lot` | `10.0` | Commission per lot per trade. |
+| `atr_stop_multiplier` | `1.0` | ATR multiplier for stop-loss distance. |
+| `atr_tp_multiplier` | `2.0` | ATR multiplier for take-profit distance (`0` = disabled). |
+| `lots_per_trade` | `0.1` | Base lot size for position sizing. |
+| `min_lots` | `0.05` | Minimum lot size (low-conviction floor). |
+| `max_lots` | `0.1` | Maximum lot size (high-conviction cap). |
+| `confidence_threshold` | `0.55` | Minimum predicted probability to open a trade (`0` = disabled). |
+| `max_drawdown_cutoff` | `0.30` | Circuit breaker: stop if equity drops below `peak * (1 - cutoff)`. |
+| `dd_cooldown_bars` | `12` | Bars to pause trading after a drawdown cutoff breach. |
+| `max_open_positions` | `1` | Maximum simultaneous open positions. |
+| `daily_loss_limit` | `0.03` | Stop trading for the day after a `-N` equity drawdown (e.g. 3%). |
 
-    section Validation
-    Validation data :2023-01, 2023-12
+### `[workflow]`
 
-    section Purge
-    25-bar gap :2024-01, 1h
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `force_rerun` | `false` | Ignore cache and rerun all pipeline stages. |
+| `random_seed` | `2024` | Global random seed for reproducibility. |
+| `n_jobs` | `-1` | Parallel worker count (`-1` = all CPUs). |
 
-    section Embargo
-    50-bar gap :2024-01, 3h
+### `[paths]`
 
-    section Test
-    Test data (OOS) :2024-01, 2026-03
-```
-
-| Parameter | What to Change | Effect |
-|-----------|---------------|--------|
-| Date ranges | Shift the boundaries | More training data = better model, but less test data = less reliable evaluation. Current: 5yr train, 1yr val, ~2yr test. |
-| `purge_bars` | Increase for more safety | Removes more data at split boundaries to prevent leakage. Default 25 = 25 hours gap. |
-| `embargo_bars` | Increase for more safety | Extra gap after purge. Default 50 = ~2 days additional gap (covers 24-bar label horizon). |
-| `embargo_scale_by_timeframe` | Scale embargo by timeframe | Default `true`. 50 bars at 1H ≈ 2 days; at 1D ≈ 2 months. |
-| `embargo_reference_timeframe` | Reference timeframe for embargo | Default `"1H"`. Used when scaling across timeframes. |
-
-> **Tip:** Never make the test period too short. At least 6 months of data is recommended for a meaningful backtest.
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `data_raw` | `"data/raw/XAUUSD"` | Raw tick/data directory. |
+| `data_processed` | `"data/processed"` | Processed parquet output directory. |
+| `ohlcv` | `"data/processed/ohlcv.parquet"` | OHLCV bars parquet. |
+| `features` | `"data/processed/features.parquet"` | Engineered features parquet. |
+| `labels` | `"data/processed/labels.parquet"` | Label parquet. |
+| `train_data` | `"data/processed/train.parquet"` | Training split. |
+| `val_data` | `"data/processed/val.parquet"` | Validation split. |
+| `test_data` | `"data/processed/test.parquet"` | Test split. |
+| `model` | `"models/lightgbm_model.pkl"` | LightGBM model artifact. |
+| `gru_model` | `"models/gru_model.pt"` | GRU model artifact. |
+| `predictions` | `"data/predictions/final_predictions.parquet"` | Final predictions. |
+| `backtest_results` | `"results/backtest_results.json"` | Backtest output. |
+| `report` | `"results/thesis_report.md"` | Generated report. |
 
 ---
 
-### `[features]` — Technical Indicators
+## Parameters Worth Changing
 
-```toml
-[features]
-rsi_period = 14
-atr_period = 14
-macd_fast = 12
-macd_slow = 26
-macd_signal = 9
-correlation_threshold = 0.75
-```
+Use these for experiments:
 
-| Parameter | What to Change | Effect |
-|-----------|---------------|--------|
-| `rsi_period` | Shorter (e.g., 7) for faster signals | Shorter RSI reacts faster but is noisier. |
-| `atr_period` | Shorter for faster volatility detection | Affects TP/SL sizing and volatility features. |
-| `macd_fast` / `macd_slow` / `macd_signal` | Standard values work well | MACD is less sensitive to changes than RSI. |
-| `correlation_threshold` | Lower (e.g., 0.80) to drop more features | Removes features that carry similar information. A lower value means fewer features survive. |
+| Section | Parameter | Why it matters |
+| --- | --- | --- |
+| `validation` | `train_window_bars`, `test_window_bars` | Controls time-series evaluation stability. |
+| `validation` | `wf_optuna_trials` | Per-window hyperparameter tuning (0 = off). |
+| `stacking` | `base_models`, `meta_model` | Controls ensemble composition and meta-learner. |
+| `labels` | `atr_multiplier`, `horizon_bars` | Defines the target classes. This changes the ML problem. |
+| `model` | `architecture` | Switches between `"hybrid"` and `"stacking"`. |
+| `model` | `num_leaves`, `max_depth`, `n_estimators` | Controls LightGBM capacity and overfitting. |
+| `gru` | `hidden_size`, `sequence_length`, `epochs` | Controls temporal model capacity and runtime. |
+| `backtest` | `confidence_threshold`, `lots_per_trade` | Demo-only risk/filter controls. Do not use them to claim model quality. |
 
----
+## Default Experiment Profile
 
-### `[labels]` — Triple Barrier
-
-```toml
-[labels]
-atr_multiplier = 1.5
-horizon_bars = 24
-num_classes = 3
-min_atr = 0.5
-```
-
-```mermaid
-flowchart TD
-    ENTRY["Entry Price"] -->|"atr_multiplier × ATR"| TP["Take Profit"]
-    ENTRY -->|"atr_multiplier × ATR"| SL["Stop Loss"]
-    ENTRY -->|"horizon_bars"| TIME["Time Limit"]
-
-    TP --> |"Hit first"| LONG["Label: +1 (Long)"]
-    SL --> |"Hit first"| SHORT["Label: -1 (Short)"]
-    TIME --> |"Nothing hit"| FLAT["Label: 0 (Flat)"]
-
-    style TP fill:#059669,color:#fff
-    style SL fill:#DC2626,color:#fff
-    style TIME fill:#6B7280,color:#fff
-```
-
-| Parameter | What to Change | Effect |
-|-----------|---------------|--------|
-| `atr_multiplier` | **Higher (e.g., 2.0)** = wider TP/SL, fewer but bigger trades | This controls how far the take-profit and stop-loss are from the entry price. |
-| `horizon_bars` | **Higher (e.g., 15)** = more time for price to reach TP/SL | The maximum number of bars to wait. If neither barrier is hit, the label is "Flat". |
-| `min_atr` | Rarely needs changing | A floor value for ATR to prevent tiny TP/SL on very calm markets. |
-
-> **Biggest impact:** `atr_multiplier` and `horizon_bars` directly control the trading style. Low multiplier + short horizon = scalping. High multiplier + long horizon = swing trading.
-
----
-
-### `[model]` — LightGBM Parameters
+The default `config.toml` is intentionally conservative:
 
 ```toml
 [model]
-use_optuna = true
-optuna_trials = 100
-optuna_timeout = 3600
-num_leaves = 48
-max_depth = 4
-learning_rate = 0.03
-n_estimators = 150
-min_child_samples = 200
-subsample = 0.70
-subsample_freq = 5
-feature_fraction = 0.60
-reg_alpha = 0.1
-reg_lambda = 10.0
-early_stopping_rounds = 50
-```
+architecture = "hybrid"
+use_optuna = false
+num_leaves = 31
+max_depth = 6
+n_estimators = 200
 
-| Parameter | What It Does | What to Try |
-|-----------|-------------|------------|
-| `num_leaves` | How many leaf nodes each tree can have | More = more complex model (risk of overfitting). Try 50-150. |
-| `max_depth` | Maximum depth of each tree | Deeper = more complex. Try 4-8. |
-| `learning_rate` | How fast the model learns | Lower = slower but more robust. Try 0.01-0.05. |
-| `n_estimators` | Number of trees | More = better fit (with early stopping). Try 100-500. |
-| `min_child_samples` | Minimum samples per leaf | Higher = more conservative (less overfitting). Try 50-200. |
-| `subsample` | Fraction of data used per tree | Lower = more random (less overfitting). Try 0.6-1.0. |
-| `feature_fraction` | Fraction of features used per tree | Lower = more diverse trees. Try 0.5-0.8. |
-| `reg_alpha` | L1 regularization | Higher = simpler model. Try 0-0.1. |
-| `reg_lambda` | L2 regularization | Higher = simpler model. Try 1-10. |
-| `use_optuna` | Set to `true` to auto-tune parameters | Automatically searches for the best hyperparameters. |
-| `optuna_timeout` | Maximum seconds for Optuna search | Default 3600 (1 hour). Increase for more thorough search. |
-
-> **Beginner tip:** Start with the defaults. If the model overfits (train accuracy much higher than test), increase `min_child_samples`, decrease `num_leaves`, or increase regularization. If the model underfits, do the opposite.
-
----
-
-### `[gru]` — GRU Neural Network
-
-```toml
 [gru]
-input_size = 4        # log_returns + rsi_14 + atr_14 + macd_hist
 hidden_size = 32
-num_layers = 2
-sequence_length = 48
-dropout = 0.4
-learning_rate = 0.001
-batch_size = 64
-epochs = 30
-patience = 10
+epochs = 25
+patience = 5
+batch_size = 256
+
+[validation]
+method = "sliding"
+wf_optuna_trials = 0
+
+[stacking]
+base_models = ["gru", "lgbm"]
+meta_model = "lightgbm"
+final_refit = true
 ```
 
-| Parameter | What It Does | What to Try |
-|-----------|-------------|------------|
-| `input_size` | Number of features per bar fed to GRU | Must match GRU input columns (4: log_returns, rsi_14, atr_14, macd_hist). |
-| `hidden_size` | Size of the GRU's internal memory | Larger = more capacity (32 or 64). Smaller = faster training. |
-| `num_layers` | Number of stacked GRU layers | 1-3 is typical. More layers = deeper patterns but slower. |
-| `sequence_length` | How many past bars the GRU looks at | 12-48 is reasonable. More = longer memory but more computation. |
-| `dropout` | Randomly disables neurons during training | 0.2-0.5 is typical. Prevents overfitting. |
-| `learning_rate` | How fast the GRU weights update | 0.001 is standard. Try 0.0005 for more stable training. |
-| `batch_size` | Number of sequences processed at once | 32-128. Lower = less memory. Higher = faster but less stable. |
-| `epochs` | Maximum training rounds | 30-100. Early stopping will stop earlier if no improvement. |
-| `patience` | How many epochs to wait before stopping | 5-15. Lower = stop faster. Higher = wait longer. |
+This gives faster runs and more repeatable comparisons. Use Optuna only after
+you have a stable baseline table; otherwise the thesis can look like parameter
+search instead of model engineering.
 
----
+## Evaluation Rules
 
-### `[backtest]` — Trading Simulator
+Treat a result as useful only if it beats simple baselines:
 
-```toml
-[backtest]
-initial_capital = 10000.0
-leverage = 30                       # 30:1 — affordable for 1 lot with $10k
-spread_ticks = 35                   # 35 ticks = $0.35 (realistic XAUUSD ECN spread)
-slippage_ticks = 5                  # 5 ticks = $0.05 per side (absorbed into spread)
-commission_per_lot = 10.0           # Round-trip commission per lot
-atr_stop_multiplier = 1.5          # ATR multiplier for stop-loss distance
-lots_per_trade = 0.15                # Fixed lot size (0.15 lot = 15 oz XAUUSD)
-confidence_threshold = 0.6         # Min predicted probability to trade (0 = disabled)
-auto_lot_sizing = true             # Enable dynamic lot sizing based on equity + risk %
-risk_per_trade_pct = 1.0            # Risk % of equity per trade
-min_lot_size = 0.1                  # Minimum lot size floor
-max_lot_size = 5.0                 # Maximum lot size ceiling
-# Enhanced auto lot sizing
-enable_performance_adjustment = true  # Scale size with equity performance
-enable_volatility_adjustment = true   # Reduce size in high volatility
-max_capital_risk_pct = 10.0          # Max % of initial capital per trade
-performance_multiplier = 1.2         # Max size increase when performing well
-performance_reduction = 0.8          # Min size when underperforming
-```
+| Metric | Minimum expectation |
+| --- | --- |
+| Exact accuracy | Higher than majority-class baseline. |
+| Macro F1 | Better than predicting only `Hold`. |
+| Directional accuracy | Higher than 50% on non-Hold predictions. |
+| High-confidence accuracy | Higher than full-sample accuracy. |
 
-| Parameter | What It Does | What to Try |
-|-----------|-------------|------------|
-| `initial_capital` | Starting money | Change to test different account sizes. Does not affect the model. |
-| `leverage` | How much borrowed money you use | 30 = 1:30 leverage. Higher = more amplification (and risk). |
-| `spread_ticks` | Broker's spread in ticks | 30 ticks = $0.30 for XAU/USD. Higher = more conservative. |
-| `slippage_ticks` | Expected slippage in ticks | Absorbed into spread. Higher = more conservative. |
-| `commission_per_lot` | Commission per standard lot round-trip | $10 is typical. Higher = more conservative. |
-| `atr_stop_multiplier` | Stop-loss distance as a multiple of ATR | Higher = wider stop (more room). Lower = tighter stop (cut losses faster). |
-| `lots_per_trade` | Fixed position size per trade | 1.0 = 1 lot (100 oz). Keeps sizing constant to prevent runaway. |
-| `confidence_threshold` | Minimum predicted probability to take a trade | 0 = disabled (trade on all signals). 0.6 = only trade when model is confident. |
-| `auto_lot_sizing` | Enable dynamic lot sizing based on equity + risk % | Set to `true` to use risk-based position sizing. |
-| `risk_per_trade_pct` | Risk % of equity per trade | Default 1.0 = risk 1% of equity per trade. |
-| `min_lot_size` | Minimum lot size floor | Default 0.1. Prevents tiny positions. |
-| `max_lot_size` | Maximum lot size ceiling | Default 5.0. Prevents oversized positions. |
-| `enable_performance_adjustment` | Scale position size with equity performance | When `true`, increases size when equity grows, decreases when it shrinks. |
-| `enable_volatility_adjustment` | Reduce size during high volatility | When `true`, reduces position size when ATR is high relative to price. |
-| `max_capital_risk_pct` | Maximum % of initial capital risked per trade | Safety cap independent of equity-based calculation. Default 10%. |
-| `performance_multiplier` | Maximum position size increase factor | Caps how much sizing can grow during winning streaks. Default 1.2. |
-| `performance_reduction` | Minimum position size reduction factor | Floor for how small sizing can shrink during drawdowns. Default 0.8. |
-
-> **Position sizing:** Default is now dynamic (`auto_lot_sizing = true`). Set to `false` for fixed lot sizing via `lots_per_trade`.
-
-> **Important:** Position sizing is fixed (`lots_per_trade × contract_size`). This prevents the "runaway sizing" problem where compounding equity with leverage creates unrealistic position sizes.
-
----
-
-### `[workflow]` — Pipeline Control
-
-```toml
-[workflow]
-run_data_pipeline = true
-run_feature_engineering = true
-run_label_generation = true
-run_data_splitting = true
-run_model_training = true
-run_backtest = true
-run_reporting = true
-force_rerun = false
-random_seed = 2024
-n_jobs = -1
-```
-
-| Parameter | What It Does |
-|-----------|-------------|
-| `run_*` toggles | Turn individual stages on/off. Set to `false` to skip. |
-| `force_rerun` | Set to `true` to re-run everything even if outputs exist. |
-| `random_seed` | Controls reproducibility. Same seed = same results. |
-| `n_jobs` | Number of CPU cores. `-1` = use all cores. |
-
----
-
-### `[paths]` — File Locations
-
-```toml
-[paths]
-data_raw = "data/raw/XAUUSD"
-data_processed = "data/processed"
-ohlcv = "data/processed/ohlcv.parquet"
-features = "data/processed/features.parquet"
-labels = "data/processed/labels.parquet"
-train_data = "data/processed/train.parquet"
-val_data = "data/processed/val.parquet"
-test_data = "data/processed/test.parquet"
-model = "models/lightgbm_model.pkl"
-gru_model = "models/gru_model.pt"
-predictions = "data/predictions/final_predictions.parquet"
-backtest_results = "results/backtest_results.json"
-report = "results/thesis_report.md"
-```
-
-| Parameter | What It Points To |
-|-----------|-------------------|
-| `data_raw` | Directory for raw tick parquet files |
-| `data_processed` | Directory for intermediate parquet files |
-| `ohlcv` / `features` / `labels` | Stage 0–2 outputs |
-| `train_data` / `val_data` / `test_data` | Stage 3 split outputs |
-| `model` | LightGBM model pickle |
-| `gru_model` | GRU PyTorch weights |
-| `predictions` | Final model predictions |
-| `backtest_results` / `report` | Backtest and report outputs |
-
-You usually do not need to change these unless you are reorganizing the project structure.
-
----
-
-## Tuning Strategy for Beginners
-
-If you are new to machine learning and do not know where to start, follow this order:
-
-```mermaid
-flowchart TD
-    S1["Step 1<br/>Run with defaults<br/>Note the metrics"] --> S2
-    S2["Step 2<br/>Adjust atr_multiplier<br/>Try 1.0, 1.5, 2.0, 2.5"] --> S3
-    S3["Step 3<br/>Adjust atr_stop_multiplier<br/>Try 0.5, 0.75, 1.0, 1.5"] --> S4
-    S4["Step 4<br/>Enable Optuna<br/>use_optuna = true"] --> S5
-    S5["Step 5<br/>Adjust GRU<br/>Try sequence_length 48, 64, 96"] --> S6
-    S6["Step 6<br/>Run ablation<br/>Confirm hybrid is best"]
-
-    style S1 fill:#2563EB,color:#fff
-    style S6 fill:#059669,color:#fff
-```
-
-### Step 1: Run with Defaults
-Run the pipeline once with default settings. Note the metrics.
-
-### Step 2: Adjust Label Parameters
-Try different `atr_multiplier` values (1.0, 1.5, 2.0, 2.5). This changes the trading style.
-
-### Step 3: Adjust Stop-Loss Distance
-Change `atr_stop_multiplier` in `[backtest]`. Try 0.5, 0.75, 1.0, 1.5.
-
-### Step 4: Tune Optuna Search
-Optuna is **enabled by default**. Adjust `optuna_trials` and `optuna_timeout` to control the search depth and duration.
-
-### Step 5: Adjust GRU
-Change `sequence_length` (12, 24, 36, 48). This changes how far back the model looks.
-
-### Step 6: Compare with Ablation
-Run `pixi run ablation` after each experiment. Make sure the hybrid model is still better than individual models.
-
----
-
-## What NOT to Change
-
-These settings are carefully chosen and rarely need adjustment:
-
-- `market_tz` — Session calculations depend on this.
-- `purge_bars` / `embargo_bars` — Lowering these risks data leakage.
-- `num_classes` — Must be 3 (Long, Flat, Short).
-- `input_size` — Must match the number of GRU input features (4).
-- `correlation_threshold` — Values above 0.95 let too many redundant features through.
-- `lots_per_trade` — Changing this affects margin requirements; ensure leverage supports the lot size.
-
----
-
-## Repository hygiene (coverage)
-
-`pixi run test` writes **`.coverage`** and **`coverage.xml`** via pytest-cov. These files are listed in `.gitignore` so they do not clutter `git status`. CI regenerates coverage in the job workspace; do not commit them.
+Backtest return is secondary. A profitable backtest with weak ML metrics is not
+a reliable thesis result; it is likely noise or overfitting.

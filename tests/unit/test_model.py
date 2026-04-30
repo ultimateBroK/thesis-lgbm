@@ -13,7 +13,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from thesis.config import Config
-from thesis.hybrid.lgbm import _compute_class_weights, _compute_sharpe_from_predictions
+from thesis.model import (
+    _build_interaction_constraints,
+    _compute_class_weights,
+    _compute_cost_fraction,
+    _compute_sharpe_from_predictions,
+)
 
 
 @pytest.fixture
@@ -170,12 +175,12 @@ def test_sharpe_random_predictions() -> None:
 @pytest.mark.unit
 @pytest.mark.models
 def test_sharpe_insufficient_trades() -> None:
-    """Test Sharpe returns 0 with too few trades."""
-    y_true = np.array([1, -1, 1, -1, 1])
-    y_pred = np.array([1, -1, 1, -1, 1])
+    """Test Sharpe returns 0 with too few trades (below min_trades=3)."""
+    y_true = np.array([1, -1])
+    y_pred = np.array([1, -1])
 
     sharpe = _compute_sharpe_from_predictions(y_true, y_pred)
-    assert sharpe == 0.0  # Less than 10 non-hold trades
+    assert sharpe == 0.0  # Less than min_trades=3 non-hold trades
 
 
 @pytest.mark.unit
@@ -220,3 +225,34 @@ def test_sharpe_better_than_random() -> None:
     sharpe_bad = _compute_sharpe_from_predictions(y_true, y_bad)
 
     assert sharpe_good > sharpe_bad
+
+
+@pytest.mark.unit
+@pytest.mark.models
+def test_cost_fraction_uses_realistic_market_price(sample_config: Config) -> None:
+    """Transaction-cost fraction should stay small at realistic XAUUSD prices."""
+    sample_config.backtest.spread_ticks = 35
+    sample_config.backtest.slippage_ticks = 5
+    sample_config.backtest.commission_per_lot = 10.0
+    sample_config.backtest.lots_per_trade = 0.2
+    sample_config.data.tick_size = 0.01
+    sample_config.data.contract_size = 100
+
+    cost_fraction = _compute_cost_fraction(
+        sample_config.backtest,
+        sample_config.data,
+        median_price=2000.0,
+    )
+
+    assert 0 < cost_fraction < 0.01
+
+
+@pytest.mark.unit
+@pytest.mark.models
+def test_interaction_constraints_skip_empty_groups() -> None:
+    """Pure-static or pure-GRU inputs should not emit empty constraint groups."""
+    static_only = _build_interaction_constraints(["rsi_14", "atr_14"])
+    gru_only = _build_interaction_constraints(["gru_h0", "gru_h1"])
+
+    assert static_only == [[0, 1]]
+    assert gru_only == [[0, 1]]

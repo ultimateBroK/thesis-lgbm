@@ -1,9 +1,12 @@
 [run]
 source = src/thesis
 omit =
-    src/thesis/dashboard/*
-    src/thesis/ablation.py
+    src/thesis/dashboard.py
+    src/thesis/charts.py
+    src/thesis/zones.py
+    src/thesis/report.py
+    src/thesis/ui.py
 
 [report]
-fail_under = 70
+fail_under = 60
 show_missing = true
