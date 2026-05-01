@@ -49,6 +49,7 @@ def generate_features(config: Config) -> None:
     logger.info("Loading OHLCV: %s", ohlcv_path)
     df = pl.read_parquet(ohlcv_path)
     logger.info("Input bars: %d", len(df))
+    _validate_ohlcv_input(df, config)
 
     # --- Core price-volatility anchor ---
     df = _add_atr(df, config)
@@ -75,10 +76,6 @@ def generate_features(config: Config) -> None:
     if "return_1h" in df.columns and "log_returns" not in df.columns:
         df = df.with_columns(pl.col("return_1h").alias("log_returns"))
 
-    # Fill NaN from warm-up periods
-    df = df.fill_null(strategy="forward")
-    df = df.fill_null(0.0)
-
     # Keep only compact model-facing features to avoid redundant columns.
     keep_features = sorted(
         {
@@ -89,6 +86,7 @@ def generate_features(config: Config) -> None:
     keep_cols = ["timestamp", "open", "high", "low", "close", "volume", *keep_features]
     existing_keep_cols = [c for c in keep_cols if c in df.columns]
     df = df.select(existing_keep_cols)
+    df = _drop_warmup_rows(df, keep_features)
 
     # Persist
     out_path = Path(config.paths.features)
@@ -126,6 +124,79 @@ def _compute_atr_expr(period: int) -> pl.Expr:
         ]
     )
     return tr.ewm_mean(alpha=1.0 / period, adjust=False)
+
+
+def _timeframe_to_ms(timeframe: str) -> int:
+    """Parse a small timeframe string into milliseconds for validation."""
+    tf = timeframe.upper()
+    if tf.endswith("H"):
+        return int(tf[:-1]) * 3_600_000
+    if tf.endswith("MIN"):
+        return int(tf[:-3]) * 60_000
+    if tf.endswith("M"):
+        return int(tf[:-1]) * 60_000
+    if tf in ("D", "1D"):
+        return 86_400_000
+    raise ValueError(f"Unsupported timeframe: {timeframe}")
+
+
+def _validate_ohlcv_input(df: pl.DataFrame, config: Config) -> None:
+    """Log timestamp continuity checks before rolling feature generation."""
+    required = {"timestamp", "open", "high", "low", "close", "volume"}
+    missing = sorted(required - set(df.columns))
+    if missing:
+        raise ValueError(f"OHLCV missing required columns: {missing}")
+    if df.is_empty():
+        raise ValueError("OHLCV is empty; cannot generate features")
+
+    unsorted = int(
+        df.select((pl.col("timestamp").diff().dt.total_milliseconds() < 0).sum()).item()
+        or 0
+    )
+    duplicate_count = len(df) - df.get_column("timestamp").n_unique()
+    if unsorted > 0:
+        raise ValueError(f"OHLCV timestamps are not sorted ({unsorted} reversals)")
+    if duplicate_count > 0:
+        raise ValueError(
+            f"OHLCV timestamps are not unique ({duplicate_count} duplicates)"
+        )
+
+    if len(df) < 2:
+        return
+
+    expected_ms = _timeframe_to_ms(config.data.timeframe)
+    deltas = (
+        df.select(
+            (pl.col("timestamp").diff().dt.total_milliseconds()).alias("delta_ms")
+        )
+        .drop_nulls()
+        .get_column("delta_ms")
+    )
+    gaps = deltas.filter(deltas > expected_ms)
+    largest = int(deltas.max() or 0)
+    logger.info(
+        "Feature input gap check: expected_delta=%d ms, gap_count=%d, "
+        "largest_gap=%.2f bars",
+        expected_ms,
+        len(gaps),
+        largest / expected_ms if expected_ms else 0.0,
+    )
+
+
+def _drop_warmup_rows(df: pl.DataFrame, feature_cols: list[str]) -> pl.DataFrame:
+    """Drop rows whose model-facing features are still null/NaN after warm-up."""
+    existing_features = [c for c in feature_cols if c in df.columns]
+    n_before = len(df)
+    df = df.fill_nan(None).drop_nulls(subset=existing_features)
+    dropped = n_before - len(df)
+    if dropped > 0:
+        logger.info(
+            "Dropped %d warm-up rows with incomplete model-facing features",
+            dropped,
+        )
+    if df.is_empty():
+        raise ValueError("No feature rows remain after dropping warm-up rows")
+    return df
 
 
 # ---------------------------------------------------------------------------

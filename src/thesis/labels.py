@@ -1,12 +1,12 @@
-"""Stage 2: triple-barrier labeling — simplified, no session-aware ATR.
+"""Stage 2: symmetric upper/lower barrier direction labeling.
 
 Uses a single ``atr_multiplier`` for all hours. No DST detection,
 no session definitions, no dead-hour filtering.
 
 Classes:
-    +1  Long  (take-profit barrier hit first)
+    +1  Long  (upper barrier hit first)
      0  Hold  (neither barrier hit within horizon)
-    -1  Short (stop-loss barrier hit first)
+    -1  Short (lower barrier hit first)
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ def generate_labels(config: Config) -> None:
     """
     Generate triple-barrier labels and write them to the configured labels path.
 
-    Loads features and OHLCV parquet files, joins them on `timestamp`, validates the presence of the ATR feature named `atr_{atr_period}`, computes triple-barrier labels using `config.labels` parameters (`atr_multiplier`, `horizon_bars`, `min_atr`), merges label columns (`label`, `tp_price`, `sl_price`, `touched_bar`) into the dataset, logs the label distribution, and persists the result to `config.paths.labels`.
+    Loads features and OHLCV parquet files, joins them on `timestamp`, validates the presence of the ATR feature named `atr_{atr_period}`, computes symmetric upper/lower barrier direction labels using `config.labels` parameters (`atr_multiplier`, `horizon_bars`, `min_atr`), merges label columns (`label`, `upper_barrier`, `lower_barrier`, `touched_bar`) into the dataset, logs the label distribution, and persists the result to `config.paths.labels`.
 
     Args:
         config (Config): Application configuration containing:
@@ -67,7 +67,9 @@ def generate_labels(config: Config) -> None:
     if atr_col not in df.columns:
         raise ValueError(f"{atr_col} not in features. Run feature engineering first.")
 
-    labels_arr, tp_prices_arr, sl_prices_arr, touched_bars_arr = _compute_labels(
+    _log_atr_stats(df, atr_col, config.labels.min_atr)
+
+    labels_arr, upper_arr, lower_arr, touched_bars_arr = _compute_labels(
         close=df["close"].to_numpy(),
         high=df["high"].to_numpy(),
         low=df["low"].to_numpy(),
@@ -84,9 +86,7 @@ def generate_labels(config: Config) -> None:
         config.labels.min_atr,
     )
 
-    df = _merge_label_columns(
-        df, labels_arr, tp_prices_arr, sl_prices_arr, touched_bars_arr
-    )
+    df = _merge_label_columns(df, labels_arr, upper_arr, lower_arr, touched_bars_arr)
     df = _filter_censored(df)
     _log_distribution(df)
 
@@ -112,29 +112,29 @@ def _compute_labels(
     min_atr: float,
 ) -> tuple:
     """
-    Compute triple-barrier outcomes for each bar by setting TP/SL levels and scanning forward up to the given horizon.
+    Compute symmetric direction-barrier outcomes for each bar.
 
-    For each index i this sets TP = close[i] + mult * max(atr[i], min_atr) and SL = close[i] - mult * max(atr[i], min_atr), then inspects bars i+1 .. i+horizon (bounded by series end) to determine which barrier is touched first. If neither barrier is touched within the horizon the label remains 0. If both barriers are touched on the same bar, the close price determines the label: closer to TP → Long (1), closer to SL → Short (-1), equidistant → Hold (0). Rows within `horizon` bars of the series end are marked -2 (censored) and are dropped from training.
+    For each index i this sets upper = close[i] + mult * max(atr[i], min_atr) and lower = close[i] - mult * max(atr[i], min_atr), then inspects bars i+1 .. i+horizon (bounded by series end) to determine which barrier is touched first. If neither barrier is touched within the horizon the label remains 0. If both barriers are touched on the same OHLC bar, the sample is treated as ambiguous and labeled Hold (0). Rows within `horizon` bars of the series end are marked -2 (censored) and are dropped from training.
 
     Returns:
         dict: A dictionary with the following keys:
-            - "labels" (np.ndarray[int32]): per-bar labels where 1 = TP hit (Long), -1 = SL hit (Short), 0 = Hold, -2 = censored (right-censored, insufficient forward bars).
-            - "tp_prices" (np.ndarray[float64]): TP price set at each bar.
-            - "sl_prices" (np.ndarray[float64]): SL price set at each bar.
+            - "labels" (np.ndarray[int32]): per-bar labels where 1 = upper barrier hit, -1 = lower barrier hit, 0 = Hold, -2 = censored (right-censored, insufficient forward bars).
+            - "upper_barriers" (np.ndarray[float64]): upper barrier price set at each bar.
+            - "lower_barriers" (np.ndarray[float64]): lower barrier price set at each bar.
             - "touched_bars" (np.ndarray[int32]): number of bars forward until the barrier was touched; -1 if not touched, -2 if censored.
     """
     n = len(close)
     labels = np.zeros(n, dtype=np.int32)
-    tp_prices = np.zeros(n, dtype=np.float64)
-    sl_prices = np.zeros(n, dtype=np.float64)
+    upper_barriers = np.zeros(n, dtype=np.float64)
+    lower_barriers = np.zeros(n, dtype=np.float64)
     touched_bars = np.full(n, -1, dtype=np.int32)
 
     for i in range(n):
         a = max(atr[i], min_atr)
-        tp = close[i] + mult * a
-        sl = close[i] - mult * a
-        tp_prices[i] = tp
-        sl_prices[i] = sl
+        upper = close[i] + mult * a
+        lower = close[i] - mult * a
+        upper_barriers[i] = upper
+        lower_barriers[i] = lower
 
         # Right-censored: not enough forward bars to evaluate horizon
         if i + horizon >= n:
@@ -144,31 +144,22 @@ def _compute_labels(
 
         label = 0  # Hold by default
         for j in range(i + 1, min(i + 1 + horizon, n)):
-            tp_hit = high[j] >= tp
-            sl_hit = low[j] <= sl
-            if tp_hit and sl_hit:
-                # Both barriers touched on same bar — use close price to determine direction
-                tp_dist = abs(close[j] - tp)
-                sl_dist = abs(close[j] - sl)
-                if tp_dist < sl_dist:
-                    label = 1  # closer to TP → Long
-                    touched_bars[i] = j - i
-                elif sl_dist < tp_dist:
-                    label = -1  # closer to SL → Short
-                    touched_bars[i] = j - i
-                # else: equidistant → remains Hold (0)
+            upper_hit = high[j] >= upper
+            lower_hit = low[j] <= lower
+            if upper_hit and lower_hit:
+                # OHLC bars do not reveal intra-bar path; keep ambiguous samples neutral.
                 break
-            if tp_hit:
+            if upper_hit:
                 label = 1  # Long
                 touched_bars[i] = j - i
                 break
-            if sl_hit:
+            if lower_hit:
                 label = -1  # Short
                 touched_bars[i] = j - i
                 break
         labels[i] = label
 
-    return labels, tp_prices, sl_prices, touched_bars
+    return labels, upper_barriers, lower_barriers, touched_bars
 
 
 # ---------------------------------------------------------------------------
@@ -187,22 +178,51 @@ def _validate_paths(features_path: Path, ohlcv_path: Path) -> None:
 def _merge_label_columns(
     df: pl.DataFrame,
     labels_arr: np.ndarray,
-    tp_prices_arr: np.ndarray,
-    sl_prices_arr: np.ndarray,
+    upper_arr: np.ndarray,
+    lower_arr: np.ndarray,
     touched_bars_arr: np.ndarray,
 ) -> pl.DataFrame:
-    """Build and join label columns into the main dataframe."""
+    """Build and join label columns into the main dataframe.
+
+    ``tp_price`` and ``sl_price`` are retained as backward-compatible aliases
+    for the upper/lower direction barriers.
+    """
     ts_dtype = df["timestamp"].dtype
     labels_df = pl.DataFrame(
         {
             "timestamp": pl.Series(df["timestamp"].to_list(), dtype=ts_dtype),
             "label": labels_arr,
-            "tp_price": tp_prices_arr,
-            "sl_price": sl_prices_arr,
+            "upper_barrier": upper_arr,
+            "lower_barrier": lower_arr,
+            "tp_price": upper_arr,
+            "sl_price": lower_arr,
             "touched_bar": touched_bars_arr,
         }
     )
     return df.join(labels_df, on="timestamp", how="left")
+
+
+def _log_atr_stats(df: pl.DataFrame, atr_col: str, min_atr: float) -> None:
+    """Log ATR distribution and how often the configured floor applies."""
+    stats = df.select(
+        [
+            pl.col(atr_col).min().alias("min"),
+            pl.col(atr_col).median().alias("median"),
+            pl.col(atr_col).quantile(0.05).alias("p5"),
+            pl.col(atr_col).quantile(0.95).alias("p95"),
+            (pl.col(atr_col) < min_atr).mean().alias("floor_rate"),
+        ]
+    ).row(0, named=True)
+    logger.info(
+        "ATR stats (%s): min=%.6f, median=%.6f, p5=%.6f, p95=%.6f, "
+        "below_min_atr=%.2f%%",
+        atr_col,
+        stats["min"] or 0.0,
+        stats["median"] or 0.0,
+        stats["p5"] or 0.0,
+        stats["p95"] or 0.0,
+        (stats["floor_rate"] or 0.0) * 100,
+    )
 
 
 def _filter_censored(df: pl.DataFrame) -> pl.DataFrame:

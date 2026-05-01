@@ -26,6 +26,13 @@ from thesis.config import Config
 logger = logging.getLogger("thesis.prepare")
 
 
+def _parse_datetime_bound(value: str, name: str, dtype: pl.DataType) -> pl.Expr:
+    """Parse an inclusive datetime bound from config into a Polars expression."""
+    if not value:
+        raise ValueError(f"config.data.{name} must not be empty")
+    return pl.lit(value).str.to_datetime().cast(dtype)
+
+
 def _aggregate_file(file_path: Path, group_ms: int) -> pl.DataFrame:
     """Aggregate one monthly tick parquet file into OHLCV bars.
 
@@ -42,6 +49,22 @@ def _aggregate_file(file_path: Path, group_ms: int) -> pl.DataFrame:
         file_path,
         columns=["timestamp", "bid", "ask", "ask_volume", "bid_volume"],
     )
+
+    n_before = len(ticks)
+    ticks = ticks.filter(
+        (pl.col("bid") > 0)
+        & (pl.col("ask") > 0)
+        & (pl.col("ask") >= pl.col("bid"))
+        & (pl.col("ask_volume") >= 0)
+        & (pl.col("bid_volume") >= 0)
+    )
+    dropped_quotes = n_before - len(ticks)
+    if dropped_quotes > 0:
+        logger.warning(
+            "%s: dropped %d invalid quote ticks (bid/ask/spread/volume)",
+            file_path.name,
+            dropped_quotes,
+        )
 
     # Compute mid-price and total volume
     ticks = ticks.with_columns(
@@ -181,6 +204,96 @@ def _deduplicate_and_filter(ohlcv: pl.DataFrame) -> tuple[pl.DataFrame, int]:
     return ohlcv, dropped
 
 
+def _filter_date_range(ohlcv: pl.DataFrame, config: Config) -> pl.DataFrame:
+    """Apply inclusive configured data date range to OHLCV bars."""
+    n_before = len(ohlcv)
+    ts_dtype = ohlcv["timestamp"].dtype
+    start = _parse_datetime_bound(config.data.start_date, "start_date", ts_dtype)
+    end = _parse_datetime_bound(config.data.end_date, "end_date", ts_dtype)
+    ohlcv = ohlcv.filter((pl.col("timestamp") >= start) & (pl.col("timestamp") <= end))
+    dropped = n_before - len(ohlcv)
+    if dropped > 0:
+        logger.info(
+            "Dropped %d bars outside configured range [%s, %s]",
+            dropped,
+            config.data.start_date,
+            config.data.end_date,
+        )
+    if ohlcv.is_empty():
+        raise ValueError(
+            "No OHLCV bars remain after applying configured data date range "
+            f"[{config.data.start_date}, {config.data.end_date}]"
+        )
+    return ohlcv
+
+
+def _log_gap_report(ohlcv: pl.DataFrame, group_ms: int) -> None:
+    """Log timestamp continuity diagnostics without filling missing bars."""
+    if len(ohlcv) < 2:
+        logger.warning("OHLCV gap report skipped: fewer than 2 bars")
+        return
+
+    diffs = (
+        ohlcv.select(
+            (pl.col("timestamp").diff().dt.total_milliseconds()).alias("delta_ms")
+        )
+        .drop_nulls()
+        .get_column("delta_ms")
+    )
+    missing_gaps = diffs.filter(diffs > group_ms)
+    duplicate_or_reversed = diffs.filter(diffs <= 0)
+    missing_bars = int(((missing_gaps / group_ms).floor() - 1).sum() or 0)
+    largest_gap_ms = int(diffs.max() or 0)
+
+    logger.info(
+        "OHLCV gap report: expected_delta=%d ms, missing_gap_count=%d, "
+        "estimated_missing_bars=%d, largest_gap=%.2f bars, non_increasing_deltas=%d",
+        group_ms,
+        len(missing_gaps),
+        missing_bars,
+        largest_gap_ms / group_ms if group_ms else 0.0,
+        len(duplicate_or_reversed),
+    )
+
+
+def _log_candle_quality_report(ohlcv: pl.DataFrame) -> None:
+    """Log OHLCV candle integrity and likely outlier diagnostics."""
+    if ohlcv.is_empty():
+        return
+
+    invalid = ohlcv.filter(
+        (pl.col("high") < pl.col("low"))
+        | (pl.col("open") < pl.col("low"))
+        | (pl.col("open") > pl.col("high"))
+        | (pl.col("close") < pl.col("low"))
+        | (pl.col("close") > pl.col("high"))
+        | (pl.col("volume") < 0)
+        | (pl.col("tick_count") <= 0)
+        | (pl.col("avg_spread") < 0)
+    )
+    if len(invalid) > 0:
+        logger.warning("OHLCV quality: %d invalid candles detected", len(invalid))
+
+    stats = ohlcv.select(
+        [
+            (pl.col("high") - pl.col("low")).median().alias("median_range"),
+            (pl.col("high") - pl.col("low")).quantile(0.99).alias("p99_range"),
+            pl.col("avg_spread").median().alias("median_spread"),
+            pl.col("avg_spread").quantile(0.99).alias("p99_spread"),
+            pl.col("tick_count").quantile(0.01).alias("p01_tick_count"),
+        ]
+    ).row(0, named=True)
+    logger.info(
+        "OHLCV quality: median_range=%.6f, p99_range=%.6f, "
+        "median_spread=%.6f, p99_spread=%.6f, p01_tick_count=%.1f",
+        stats["median_range"] or 0.0,
+        stats["p99_range"] or 0.0,
+        stats["median_spread"] or 0.0,
+        stats["p99_spread"] or 0.0,
+        stats["p01_tick_count"] or 0.0,
+    )
+
+
 def prepare_data(config: Config) -> None:
     """Prepare OHLCV bars from raw tick parquet files.
 
@@ -232,6 +345,9 @@ def prepare_data(config: Config) -> None:
 
     # Remove duplicate bar timestamps and filter corrupted years
     ohlcv, _ = _deduplicate_and_filter(ohlcv)
+    ohlcv = _filter_date_range(ohlcv, config)
+    _log_gap_report(ohlcv, group_ms)
+    _log_candle_quality_report(ohlcv)
 
     logger.info("OHLCV bars: %d (timeframe=%s)", len(ohlcv), config.data.timeframe)
     logger.info(
