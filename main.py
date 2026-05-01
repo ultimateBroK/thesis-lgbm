@@ -22,14 +22,13 @@ import shutil
 import sys
 import time
 
-from thesis.config import load_config
-from thesis.pipeline import run_pipeline
-from thesis.session_paths import configure_session_paths, load_config_for_session
-
 PROJECT_ROOT = Path(__file__).resolve().parent
 if (PROJECT_ROOT / "src").exists():
     sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+from thesis.config import load_config
+from thesis.pipeline import run_pipeline
+from thesis.session_paths import configure_session_paths, load_config_for_session
 
 
 
