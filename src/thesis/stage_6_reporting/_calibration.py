@@ -52,15 +52,19 @@ def brier_score(
 def log_loss(
     y_true: np.ndarray,
     y_proba: np.ndarray,
+    classes: list[int] | None = None,
 ) -> float:
-    """Compute cross-entropy log-loss."""
+    """Compute cross-entropy log-loss for arbitrary class labels."""
+    if classes is None:
+        classes = [-1, 0, 1]
+    class_to_idx = {label: idx for idx, label in enumerate(classes)}
     eps = 1e-15
     y_proba = np.clip(y_proba, eps, 1.0 - eps)
     y_proba /= y_proba.sum(axis=1, keepdims=True)
     n = len(y_true)
     loss = 0.0
     for i in range(n):
-        loss -= np.log(y_proba[i, int(y_true[i])])
+        loss -= np.log(y_proba[i, class_to_idx[int(y_true[i])]])
     return float(loss / n)
 
 
@@ -153,7 +157,7 @@ def compute_all_calibration_metrics(
     return {
         "ece": round(expected_calibration_error(y_true_onehot, y_proba), 6),
         "brier_score": round(brier_score(y_true_onehot, y_proba), 6),
-        "log_loss": round(log_loss(y_true, y_proba), 6),
+        "log_loss": round(log_loss(y_true, y_proba, classes=classes), 6),
         "high_confidence_accuracy": high_confidence_accuracy(y_true, y_pred, y_proba),
         "confidence_bins": confidence_bins_accuracy(y_true, y_pred, y_proba),
         "reliability_data": calibration_reliability_data(y_true_onehot, y_proba),

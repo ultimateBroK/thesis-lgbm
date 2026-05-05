@@ -121,20 +121,20 @@ class TestBrierScore:
 @pytest.mark.unit
 class TestLogLoss:
     def test_perfect_prediction(self) -> None:
-        """log_loss uses y_true as column index, so use 0-indexed labels."""
-        y = np.array([0, 1, 2])
+        """log_loss maps domain labels to probability columns."""
+        y = np.array([-1, 0, 1])
         proba = np.array([[0.98, 0.01, 0.01], [0.01, 0.98, 0.01], [0.01, 0.01, 0.98]])
         ll = log_loss(y, proba)
         assert ll < 0.1
 
     def test_random_prediction(self) -> None:
-        y = np.array([0, 1, 2])
+        y = np.array([-1, 0, 1])
         proba = np.full((3, 3), 1 / 3)
         ll = log_loss(y, proba)
         assert ll > 1.0  # -log(1/3) ≈ 1.099
 
     def test_single_sample(self) -> None:
-        y = np.array([1])
+        y = np.array([0])
         proba = np.array([[0.1, 0.8, 0.1]])
         ll = log_loss(y, proba)
         assert abs(ll - (-np.log(0.8))) < 1e-6
@@ -283,6 +283,4 @@ class TestComputeAllCalibration:
         result = compute_all_calibration_metrics(y_true, y_pred, proba)
         assert result["ece"] < 0.01
         assert result["brier_score"] < 0.01
-        # log_loss uses y_true as column index; with [-1,0,1] labels
-        # it does not index correctly, so just check it returns a float
-        assert isinstance(result["log_loss"], float)
+        assert result["log_loss"] < 0.01

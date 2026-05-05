@@ -9,9 +9,10 @@ import json
 import logging
 import math
 import tomllib
-from datetime import datetime, timedelta
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -89,10 +90,11 @@ def _load_label_distribution(labels_path: Path) -> dict | None:
     try:
         df = pl.read_parquet(labels_path, columns=["label"])
         total = len(df)
-        dist: dict[str, tuple[int, float]] = {}
+        dist: dict[str, Any] = {}
         for label_val, name in [(-1, "Short"), (0, "Hold"), (1, "Long")]:
-            count = (df["label"] == label_val).sum()
-            dist[name] = (count, count / total * 100 if total > 0 else 0)
+            count = int((df["label"] == label_val).sum())
+            pct = count / total * 100 if total > 0 else 0.0
+            dist[name] = (count, pct)
         dist["total"] = total
         return dist
     except Exception:
@@ -126,9 +128,11 @@ def _load_prediction_stats(preds_path: Path) -> dict | None:
             "pred_proba_class_0",
             "pred_proba_class_1",
         ]
-        proba = df.select(proba_cols).to_numpy() if all(
-            c in df.columns for c in proba_cols
-        ) else None
+        proba = (
+            df.select(proba_cols).to_numpy()
+            if all(c in df.columns for c in proba_cols)
+            else None
+        )
 
         raw_metrics = _model_metrics.compute_all_classification_metrics(
             true,
@@ -1738,7 +1742,9 @@ def _build_model_comparison_rows(
                     }
                 )
         except Exception:
-            logger.warning("Failed to build baseline rows for model comparison", exc_info=True)
+            logger.warning(
+                "Failed to build baseline rows for model comparison", exc_info=True
+            )
 
     # Keep planned model slots visible even when not yet available.
     existing = {str(r["model"]).lower() for r in rows}
@@ -1965,7 +1971,9 @@ def _build_model_evaluation_markdown(
 
     lines.append("## Model Comparison")
     lines.append("")
-    lines.append("| Model | Directional Acc | Accuracy | Macro F1 | Long F1 | Short F1 |")
+    lines.append(
+        "| Model | Directional Acc | Accuracy | Macro F1 | Long F1 | Short F1 |"
+    )
     lines.append("|---|---:|---:|---:|---:|---:|")
     for row in model_comparison_rows:
         lines.append(
