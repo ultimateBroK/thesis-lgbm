@@ -29,7 +29,7 @@ test-integration = "pytest tests/integration/ -v -m integration"
 test-fast = "pytest tests/ -v -m 'not slow'"
 
 # Interactive visualization
-streamlit = "PYTHONPATH=src streamlit run src/thesis/dashboard.py --server.port 8501"
+streamlit = "PYTHONPATH=src streamlit run src/thesis/dashboard/main.py --server.port 8501"
 dead-code = "vulture src tests --min-confidence 80"
 
 # Documentation
