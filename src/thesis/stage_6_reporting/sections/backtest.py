@@ -14,8 +14,8 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from thesis._shared.config import Config
-from thesis.stage_4_training import _baselines
+from thesis.shared.config import Config
+from thesis.stage_4_training import baselines as baselines_mod
 from thesis.stage_6_reporting.sections.assess import (
     _PRIORITY_ICON,
     _PRIORITY_ORDER,
@@ -183,7 +183,7 @@ def _render_baseline_comparison_section(L: list[str], config: Config) -> None:
         y_returns = y_true.astype(np.float64)
 
     try:
-        baselines = _baselines.run_all_baselines(
+        baselines = baselines_mod.run_all_baselines(
             y_true, y_returns, seed=config.workflow.random_seed
         )
     except (ValueError, TypeError):

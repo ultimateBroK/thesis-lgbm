@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import torch
 
-from thesis.stage_6_reporting._calibration import (
+from thesis.stage_6_reporting.calibration import (
     _to_onehot,
     brier_score,
     calibration_reliability_data,
@@ -17,7 +17,7 @@ from thesis.stage_6_reporting._calibration import (
     expected_calibration_error,
     log_loss,
 )
-from thesis.stage_6_reporting._model_metrics import high_confidence_accuracy
+from thesis.stage_6_reporting.model_metrics import high_confidence_accuracy
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 """Markdown section renderers for the thesis report.
 
 Re-exports from focused sub-modules so that existing consumers
-(``_impl.py``, ``_tables.py``) continue to work without import changes.
+(``impl.py``, ``tables.py``) continue to work without import changes.
 """
 
 from __future__ import annotations

@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from thesis.stage_4_training._validation import (
+from thesis.stage_4_training.validation import (
     WalkForwardWindow,
     apply_event_time_purge,
     apply_purge_embargo,

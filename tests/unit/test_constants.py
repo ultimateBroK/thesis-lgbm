@@ -1,10 +1,10 @@
-"""Tests for _shared/constants.py — timeframe_to_ms and constant values."""
+"""Tests for shared/constants.py — timeframe_to_ms and constant values."""
 
 from __future__ import annotations
 
 import pytest
 
-from thesis._shared.constants import (
+from thesis.shared.constants import (
     CALIB_LR,
     CALIB_MAX_ITER,
     CENSORED_LABEL,

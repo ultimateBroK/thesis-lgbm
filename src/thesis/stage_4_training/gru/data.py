@@ -13,7 +13,7 @@ import polars as pl
 import torch
 from torch.utils.data import Dataset
 
-from thesis._shared.constants import STD_EPS
+from thesis.shared.constants import STD_EPS
 
 logger = logging.getLogger("thesis.gru")
 

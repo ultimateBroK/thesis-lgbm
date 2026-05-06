@@ -9,7 +9,7 @@ import pandas as pd
 from pyecharts import options as opts
 from pyecharts.charts import Bar, Grid, HeatMap, Line, Scatter
 
-from thesis.charts._shared import COLORS
+from thesis.charts.shared import COLORS
 
 
 def build_equity_drawdown_chart(

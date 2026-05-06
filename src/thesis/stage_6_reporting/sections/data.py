@@ -14,8 +14,8 @@ from typing import Any
 
 import polars as pl
 
-from thesis._shared.config import Config
-from thesis.stage_6_reporting import _data_quality
+from thesis.shared.config import Config
+from thesis.stage_6_reporting import data_quality
 
 logger = logging.getLogger("thesis.report")
 
@@ -119,7 +119,7 @@ def _render_data_quality_section(L: list[str], config: Config) -> None:
     if ohlcv_path.exists():
         try:
             ohlcv_df = pl.read_parquet(ohlcv_path)
-            computed_dq = _data_quality.compute_data_quality_report(ohlcv_df)
+            computed_dq = data_quality.compute_data_quality_report(ohlcv_df)
             ohlcv_c = computed_dq.get("ohlcv_consistency", {})
             missing = computed_dq.get("missing_bars", {})
             outliers = computed_dq.get("outlier_returns", {})

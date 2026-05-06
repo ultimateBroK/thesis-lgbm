@@ -13,9 +13,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from thesis._shared.config import Config
-from thesis._shared.constants import EXCLUDE_COLS
-from thesis.stage_2_features._indicators_core import (
+from thesis.shared.config import Config
+from thesis.shared.constants import EXCLUDE_COLS
+from thesis.stage_2_features.indicators.core import (
     _add_rsi,
     _add_atr,
     _add_macd,
@@ -23,7 +23,7 @@ from thesis.stage_2_features._indicators_core import (
     _add_pivot_position,
     _add_ny_session_dummies,
 )
-from thesis.stage_2_features._indicators_trend import (
+from thesis.stage_2_features.indicators.trend import (
     _add_ema_crossover,
     _add_price_action_features,
     _add_volume_zscore,
@@ -646,7 +646,7 @@ def test_4h_no_future_leakage(sample_config: Config) -> None:
 @pytest.mark.skip(reason="Multi-timeframe features removed in refactor")
 def test_4h_join_is_backward(sample_config: Config) -> None:
     """Verify join_asof uses backward strategy — no 1H bar sees a 4H value from the future."""
-    from thesis.stage_2_features._impl import _compute_4h_indicators
+    from thesis.stage_2_features.engineering import _compute_4h_indicators
 
     df = create_synthetic_ohlcv(n_rows=100)
     df_4h = _resample_to_4h(df)

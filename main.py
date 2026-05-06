@@ -42,9 +42,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if (PROJECT_ROOT / "src").exists():
     sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from thesis._shared.config import load_config  # noqa: E402
+from thesis.shared.config import load_config  # noqa: E402
 from thesis.pipeline import run_pipeline  # noqa: E402
-from thesis._shared.session_paths import (  # noqa: E402
+from thesis.shared.session_paths import (  # noqa: E402
     configure_session_paths,
     load_config_for_session,
 )
@@ -208,7 +208,7 @@ def main() -> None:
     # Logging setup — Rich for console, plain for file
     from rich.logging import RichHandler
 
-    from thesis._shared.ui import console as _console
+    from thesis.shared.ui import console as _console
 
     _log_fmt = "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
     plain_file_handler = logging.FileHandler(

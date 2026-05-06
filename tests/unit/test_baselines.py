@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from thesis.stage_4_training._baselines import (
+from thesis.stage_4_training.baselines import (
     always_predict_class,
     compute_baseline_metrics,
     majority_class_baseline,

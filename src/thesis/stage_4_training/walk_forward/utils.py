@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 
-from thesis._shared.config import Config
+from thesis.shared.config import Config
 
 logger = logging.getLogger("thesis.pipeline")
 

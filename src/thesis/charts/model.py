@@ -7,7 +7,7 @@ import polars as pl
 from pyecharts import options as opts
 from pyecharts.charts import Bar, HeatMap
 
-from thesis.charts._shared import COLORS
+from thesis.charts.shared import COLORS
 
 
 def build_confusion_matrix_chart(

@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from thesis._shared.config import Config
+from thesis.shared.config import Config
 from thesis.pipeline import run_pipeline
 from thesis.stage_2_features import generate_features
 from thesis.stage_3_labels import generate_labels

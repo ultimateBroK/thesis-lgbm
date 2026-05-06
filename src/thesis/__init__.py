@@ -4,8 +4,8 @@ This module re-exports the most commonly used symbols so that callers can use
 ``import thesis; thesis.run_pipeline(...)`` without reaching into sub-packages.
 """
 
-from thesis._shared.config import Config, get_config, load_config
 from thesis.pipeline import run_pipeline
+from thesis.shared.config import Config, get_config, load_config
 from thesis.stage_1_data import prepare_data
 from thesis.stage_2_features import generate_features
 from thesis.stage_3_labels import generate_labels

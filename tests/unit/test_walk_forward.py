@@ -11,7 +11,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from thesis._shared.config import Config
+from thesis.shared.config import Config
 from thesis.stage_4_training.walk_forward.utils import (
     _add_confidence_columns,
     _validate_predictions,
@@ -217,7 +217,7 @@ from thesis.stage_4_training.walk_forward.utils import (
 @pytest.mark.unit
 class TestSelectStaticFeatureCols:
     def test_uses_config_whitelist(self) -> None:
-        from thesis._shared.config import Config
+        from thesis.shared.config import Config
 
         config = Config()
         config.features.static_feature_cols = ["rsi_14", "adx_14"]
@@ -226,7 +226,7 @@ class TestSelectStaticFeatureCols:
         assert result == ["rsi_14", "adx_14"]
 
     def test_fallback_when_config_cols_missing(self) -> None:
-        from thesis._shared.config import Config
+        from thesis.shared.config import Config
 
         config = Config()
         config.features.static_feature_cols = ["nonexistent"]
@@ -235,7 +235,7 @@ class TestSelectStaticFeatureCols:
         assert result == ["a", "b"]
 
     def test_fallback_filters_to_available(self) -> None:
-        from thesis._shared.config import Config
+        from thesis.shared.config import Config
 
         config = Config()
         config.features.static_feature_cols = ["nonexistent"]

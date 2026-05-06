@@ -8,9 +8,9 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from thesis._shared.config import Config
-from thesis.stage_6_reporting._benchmarks import _model_label
-from thesis.stage_6_reporting._impl import (
+from thesis.shared.config import Config
+from thesis.stage_6_reporting.benchmarks import _model_label
+from thesis.stage_6_reporting.generation import (
     _benchmark_comparison_table,
     _config_table,
     _exec_verdict,
@@ -91,7 +91,7 @@ def test_benchmark_table_discloses_not_cost_equivalent(
         ]
 
     monkeypatch.setattr(
-        "thesis.stage_6_reporting._tables.compute_benchmark_comparison", fake_benchmarks
+        "thesis.stage_6_reporting.tables.compute_benchmark_comparison", fake_benchmarks
     )
     lines: list[str] = []
 

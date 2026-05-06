@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from thesis._shared.config import Config
+from thesis.shared.config import Config
 from thesis.stage_4_training.walk_forward.dispatcher import _run_walk_forward
 
 

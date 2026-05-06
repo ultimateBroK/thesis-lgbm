@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from thesis._shared.config import Config
+from thesis.shared.config import Config
 from thesis.stage_4_training.gru.arch import GRUExtractor
 
 logger = logging.getLogger("thesis.gru")

@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from thesis.stage_6_reporting._model_metrics import (
+from thesis.stage_6_reporting.model_metrics import (
     accuracy,
     balanced_accuracy,
     compute_all_classification_metrics,
@@ -334,7 +334,7 @@ class TestComputeAll:
 
     def test_with_regression_auxiliary(self) -> None:
         """When y_true_returns and y_proba are provided, regression aux is computed."""
-        from thesis.stage_6_reporting._model_metrics import compute_proxy_return
+        from thesis.stage_6_reporting.model_metrics import compute_proxy_return
 
         y_proba = np.array([[0.7, 0.2, 0.1], [0.1, 0.2, 0.7], [0.1, 0.8, 0.1]] * 3)
         y_true_returns = np.random.randn(9)
@@ -373,7 +373,7 @@ class TestComputeAll:
 # Regression helpers
 # ---------------------------------------------------------------------------
 
-from thesis.stage_6_reporting._model_metrics import (
+from thesis.stage_6_reporting.model_metrics import (
     compute_proxy_return,
     compute_regression_auxiliary,
     mae,

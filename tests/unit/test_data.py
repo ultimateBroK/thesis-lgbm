@@ -12,8 +12,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from thesis._shared.config import Config
-from thesis.stage_3_labels._impl import _log_distribution
+from thesis.shared.config import Config
+from thesis.stage_3_labels.labeling import _log_distribution
 
 
 def create_synthetic_labeled_data(
@@ -192,7 +192,7 @@ def test_log_distribution_no_crash() -> None:
 @pytest.mark.data
 def test_compute_data_quality_stats_no_gaps() -> None:
     """Test _compute_data_quality_stats with perfectly regular data (no gaps)."""
-    from thesis.stage_1_data._impl import _compute_data_quality_stats
+    from thesis.stage_1_data.processing import _compute_data_quality_stats
 
     n_rows = 100
     timestamps = pl.datetime_range(
@@ -232,7 +232,7 @@ def test_compute_data_quality_stats_no_gaps() -> None:
 @pytest.mark.data
 def test_compute_data_quality_stats_with_gaps() -> None:
     """Test _compute_data_quality_stats detects gaps in irregular data."""
-    from thesis.stage_1_data._impl import _compute_data_quality_stats
+    from thesis.stage_1_data.processing import _compute_data_quality_stats
 
     # Create data with a known gap: skip 5 hours
     n_rows = 200
@@ -279,7 +279,7 @@ def test_compute_data_quality_stats_with_gaps() -> None:
 @pytest.mark.data
 def test_compute_data_quality_stats_single_bar() -> None:
     """Test _compute_data_quality_stats with just 1 bar — should not crash."""
-    from thesis.stage_1_data._impl import _compute_data_quality_stats
+    from thesis.stage_1_data.processing import _compute_data_quality_stats
 
     ohlcv = pl.DataFrame(
         {
@@ -310,7 +310,7 @@ def test_compute_data_quality_stats_single_bar() -> None:
 # Additional _impl tests for coverage
 # ---------------------------------------------------------------------------
 
-from thesis.stage_1_data._impl import (
+from thesis.stage_1_data.processing import (
     _parse_datetime_bound,
     _deduplicate_and_filter,
     _filter_date_range,

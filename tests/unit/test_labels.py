@@ -16,14 +16,14 @@ from thesis.stage_3_labels import (
     compute_average_uniqueness,
     compute_event_end,
 )
-from thesis.stage_3_labels._impl import (
+from thesis.stage_3_labels.labeling import (
     _compute_labels,
     _filter_censored,
     _merge_label_columns,
 )
 from thesis.stage_4_training.walk_forward.hybrid import _compute_regression_target
-from thesis._shared.config import Config, GRUConfig, LGBMConfig, LabelsConfig
-from thesis._shared.constants import CENSORED_LABEL
+from thesis.shared.config import Config, GRUConfig, LGBMConfig, LabelsConfig
+from thesis.shared.constants import CENSORED_LABEL
 
 
 @pytest.mark.unit

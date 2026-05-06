@@ -15,8 +15,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from thesis._shared.config import Config
-from thesis.stage_4_training._lgbm_utils import (
+from thesis.shared.config import Config
+from thesis.stage_4_training.lgbm.utils import (
     _build_interaction_constraints,
     _compute_class_weights,
     _compute_distribution_shift_weights,
@@ -389,13 +389,13 @@ class TestDistributionShiftWeights:
 @pytest.mark.models
 class TestNormalizeLabel:
     def test_positive(self) -> None:
-        from thesis.stage_4_training._lgbm import _normalize_label
+        from thesis.stage_4_training.lgbm.training import _normalize_label
 
         assert _normalize_label(0) == "0"
         assert _normalize_label(1) == "1"
 
     def test_negative(self) -> None:
-        from thesis.stage_4_training._lgbm import _normalize_label
+        from thesis.stage_4_training.lgbm.training import _normalize_label
 
         assert _normalize_label(-1) == "minus1"
         assert _normalize_label(-2) == "minus2"
@@ -405,7 +405,7 @@ class TestNormalizeLabel:
 @pytest.mark.models
 class TestSavePredictions:
     def test_saves_parquet_and_csv(self, tmp_path) -> None:
-        from thesis.stage_4_training._lgbm import _save_predictions
+        from thesis.stage_4_training.lgbm.training import _save_predictions
 
         n = 10
         timestamps = pl.datetime_range(
@@ -448,7 +448,7 @@ class TestSavePredictions:
 @pytest.mark.models
 class TestWrapNp:
     def test_wraps_as_dataframe(self) -> None:
-        from thesis.stage_4_training._lgbm_utils import _wrap_np
+        from thesis.stage_4_training.lgbm.utils import _wrap_np
         import pandas as pd
 
         X = np.array([[1, 2], [3, 4]])
@@ -462,7 +462,7 @@ class TestWrapNp:
 @pytest.mark.models
 class TestAlignSplitsWithSequences:
     def test_slices_correctly(self) -> None:
-        from thesis.stage_4_training._lgbm_utils import _align_splits_with_sequences
+        from thesis.stage_4_training.lgbm.utils import _align_splits_with_sequences
 
         df = pl.DataFrame({"a": range(20), "b": range(20, 40)})
         seq_len = 5
@@ -476,7 +476,7 @@ class TestAlignSplitsWithSequences:
         assert len(test_a) == 16
 
     def test_alignment_values(self) -> None:
-        from thesis.stage_4_training._lgbm_utils import _align_splits_with_sequences
+        from thesis.stage_4_training.lgbm.utils import _align_splits_with_sequences
 
         df = pl.DataFrame({"val": np.arange(10.0)})
         seq_len = 3
@@ -494,7 +494,7 @@ class TestAlignSplitsWithSequences:
 @pytest.mark.models
 class TestBuildHybridMatrix:
     def test_concatenates_hidden_and_static(self) -> None:
-        from thesis.stage_4_training._lgbm_utils import _build_hybrid_matrix
+        from thesis.stage_4_training.lgbm.utils import _build_hybrid_matrix
 
         n = 10
         hidden_size = 4
@@ -521,7 +521,7 @@ class TestBuildHybridMatrix:
 @pytest.mark.models
 class TestFilterValidationToSeenClasses:
     def test_all_seen(self) -> None:
-        from thesis.stage_4_training._lgbm_utils import (
+        from thesis.stage_4_training.lgbm.utils import (
             _filter_validation_to_seen_classes,
         )
 
@@ -538,7 +538,7 @@ class TestFilterValidationToSeenClasses:
         assert len(y_filt) == len(y_val)
 
     def test_unseen_class_dropped(self) -> None:
-        from thesis.stage_4_training._lgbm_utils import (
+        from thesis.stage_4_training.lgbm.utils import (
             _filter_validation_to_seen_classes,
         )
 
@@ -556,7 +556,7 @@ class TestFilterValidationToSeenClasses:
         assert len(y_filt) == 3
 
     def test_no_overlap_returns_none(self) -> None:
-        from thesis.stage_4_training._lgbm_utils import (
+        from thesis.stage_4_training.lgbm.utils import (
             _filter_validation_to_seen_classes,
         )
 
@@ -575,7 +575,7 @@ class TestFilterValidationToSeenClasses:
 @pytest.mark.models
 class TestSaveFeatureImportance:
     def test_saves_json(self, tmp_path) -> None:
-        from thesis.stage_4_training._lgbm_utils import _save_feature_importance
+        from thesis.stage_4_training.lgbm.utils import _save_feature_importance
 
         model = MagicMock()
         model.feature_importances_ = np.array([10, 30, 20])
@@ -597,7 +597,7 @@ class TestSaveFeatureImportance:
         assert data["b"] == 30.0
 
     def test_handles_missing_session_dir(self, tmp_path) -> None:
-        from thesis.stage_4_training._lgbm_utils import _save_feature_importance
+        from thesis.stage_4_training.lgbm.utils import _save_feature_importance
 
         model = MagicMock()
         model.feature_importances_ = np.array([5, 10])

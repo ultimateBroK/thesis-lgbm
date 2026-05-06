@@ -22,7 +22,7 @@ from thesis.charts import (
     build_pnl_histogram_chart,
     build_rolling_sharpe_chart,
 )
-from thesis._shared.config import Config
+from thesis.shared.config import Config
 
 
 # ---------------------------------------------------------------------------
@@ -335,10 +335,10 @@ def test_build_equity_drawdown_empty() -> None:
 
 
 # ---------------------------------------------------------------------------
-# load_session_data from charts._loading
+# load_session_data from charts.loader
 # ---------------------------------------------------------------------------
 
-from thesis.charts._loading import load_session_data
+from thesis.charts.loader import load_session_data
 
 
 @pytest.mark.unit

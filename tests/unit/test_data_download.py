@@ -16,7 +16,7 @@ import pytest
 @pytest.fixture
 def mock_config():
     """Create a mock config for testing."""
-    from thesis._shared.config import (
+    from thesis.shared.config import (
         Config,
         DataConfig,
         PathsConfig,

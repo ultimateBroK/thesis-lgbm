@@ -9,8 +9,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from thesis._shared.config import Config
-from thesis.stage_6_reporting._benchmarks import (
+from thesis.shared.config import Config
+from thesis.stage_6_reporting.benchmarks import (
     _annualized_sharpe,
     _build_equity_curve,
     _compute_random_strategy,

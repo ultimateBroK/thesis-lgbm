@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from thesis._shared.config import Config, load_config
-from thesis._shared.constants import CORE_STATIC_FEATURES
+from thesis.shared.config import Config, load_config
+from thesis.shared.constants import CORE_STATIC_FEATURES
 from thesis.pipeline import _cache_hash, _resolve_cache_path
 
 

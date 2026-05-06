@@ -4,8 +4,6 @@ The public API is kept compatible with the former ``thesis.charts`` module,
 while implementations live in smaller domain modules.
 """
 
-from thesis.charts._loading import load_session_data
-from thesis.charts._shared import COLORS, EXCLUDED_FEATURE_COLS
 from thesis.charts.backtest import (
     _compute_monthly_returns,
     build_duration_pnl_scatter,
@@ -22,12 +20,14 @@ from thesis.charts.data import (
     build_feature_distributions_chart,
     build_label_distribution_chart,
 )
+from thesis.charts.loader import load_session_data
 from thesis.charts.model import (
     build_confidence_distribution_chart,
     build_confusion_matrix_chart,
     build_feature_importance_chart,
     build_prediction_distribution_chart,
 )
+from thesis.charts.shared import COLORS, EXCLUDED_FEATURE_COLS
 
 __all__ = [
     "COLORS",

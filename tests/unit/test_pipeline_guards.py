@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from thesis._shared.config import Config
+from thesis.shared.config import Config
 
 
 @pytest.mark.unit
@@ -136,7 +136,7 @@ class TestStageNumbering:
     @pytest.mark.unit
     def test_stage_header_1_outputs_correct_text(self, caplog) -> None:
         """stage_header(1) logs 'STAGE 1/6' with 'Data Preparation' label."""
-        from thesis._shared.ui import stage_header
+        from thesis.shared.ui import stage_header
 
         with caplog.at_level(logging.INFO, logger="thesis"):
             stage_header(1)
@@ -148,14 +148,14 @@ class TestStageNumbering:
     @pytest.mark.unit
     def test_stage_labels_keys_are_1_to_6(self) -> None:
         """STAGE_LABELS dict keys must be 1–6, not 0–5."""
-        from thesis._shared.ui import STAGE_LABELS
+        from thesis.shared.ui import STAGE_LABELS
 
         assert sorted(STAGE_LABELS.keys()) == [1, 2, 3, 4, 5, 6]
 
     @pytest.mark.unit
     def test_stage_skip_outputs_correct_text(self, caplog) -> None:
         """stage_skip logs skipped stage labels for file capture."""
-        from thesis._shared.ui import stage_skip
+        from thesis.shared.ui import stage_skip
 
         with caplog.at_level(logging.INFO, logger="thesis"):
             stage_skip(2, "cached")
@@ -167,9 +167,9 @@ class TestStageNumbering:
     @pytest.mark.unit
     def test_ui_console_singleton(self) -> None:
         """All UI imports should resolve to the shared Rich Console."""
-        import thesis._shared.ui as ui_a
+        import thesis.shared.ui as ui_a
         import thesis.pipeline as pipeline
-        from thesis.stage_4_training import _lgbm
+        from thesis.stage_4_training.lgbm import training as _lgbm
         from thesis.stage_4_training.walk_forward import (
             hybrid as _wf_hybrid,
             static as _wf_static,
@@ -192,7 +192,7 @@ class TestStageNumbering:
     @pytest.mark.parametrize("stage", [0, 7])
     def test_stage_header_out_of_range_is_graceful(self, stage: int) -> None:
         """stage_header(0) and stage_header(7) must not raise exceptions."""
-        from thesis._shared.ui import stage_header
+        from thesis.shared.ui import stage_header
 
         # Should complete without raising — uses .get() fallback
         stage_header(stage)

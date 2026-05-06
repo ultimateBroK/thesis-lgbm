@@ -33,7 +33,7 @@ import polars as pl
 import dukascopy_python
 from dukascopy_python.instruments import INSTRUMENT_FX_METALS_XAU_USD
 
-from thesis._shared.config import load_config
+from thesis.shared.config import load_config
 
 logger = logging.getLogger(__name__)
 

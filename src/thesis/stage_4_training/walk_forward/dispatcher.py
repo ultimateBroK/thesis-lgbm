@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from thesis._shared.config import Config
+from thesis.shared.config import Config
 from thesis.stage_4_training.walk_forward.hybrid import _run_walk_forward_hybrid
 from thesis.stage_4_training.walk_forward.static import _run_walk_forward_static
 

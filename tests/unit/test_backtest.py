@@ -14,17 +14,17 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from thesis._shared.config import Config
+from thesis.shared.config import Config
 from thesis.stage_5_backtest import (
     HybridGRUStrategy,
     run_backtest_from_data,
     run_backtest_manual,
 )
-from thesis.stage_5_backtest._impl import (
+from thesis.stage_5_backtest.simulation import (
     _prepare_df,
     _run_bt,
 )
-from thesis.stage_5_backtest._strategy import _calendar_day
+from thesis.stage_5_backtest.strategy import _calendar_day
 
 _log = logging.getLogger(__name__)
 
@@ -282,7 +282,7 @@ def test_signal_uses_index_minus_2(sample_config: Config) -> None:
     import numpy as np
     import polars as pl
 
-    from thesis.stage_5_backtest._impl import _prepare_df, _run_bt
+    from thesis.stage_5_backtest.simulation import _prepare_df, _run_bt
 
     n_rows = 5
     timestamps = pl.datetime_range(

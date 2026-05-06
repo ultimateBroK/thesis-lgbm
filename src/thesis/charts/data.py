@@ -10,10 +10,10 @@ import polars as pl
 from pyecharts import options as opts
 from pyecharts.charts import Bar, Grid, HeatMap, Kline, Pie, Tab
 
-from thesis.charts._shared import COLORS, EXCLUDED_FEATURE_COLS
+from thesis.charts.shared import COLORS, EXCLUDED_FEATURE_COLS
 
 if TYPE_CHECKING:
-    from thesis._shared.config import Config
+    from thesis.shared.config import Config
 
 logger = logging.getLogger("thesis.charts")
 

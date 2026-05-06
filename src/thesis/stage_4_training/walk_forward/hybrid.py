@@ -10,10 +10,10 @@ from typing import Any
 import numpy as np
 import polars as pl
 
-from thesis._shared.config import Config
-from thesis._shared.constants import CENSORED_LABEL, EXCLUDE_COLS
-from thesis._shared.ui import console
-from thesis.stage_4_training._validation import generate_windows, log_windows
+from thesis.shared.config import Config
+from thesis.shared.constants import CENSORED_LABEL, EXCLUDE_COLS
+from thesis.shared.ui import console
+from thesis.stage_4_training.validation import generate_windows, log_windows
 from thesis.stage_4_training.walk_forward.artifacts import _save_wf_artifacts
 from thesis.stage_4_training.walk_forward.utils import (
     _CLASS_ORDER,
@@ -332,7 +332,7 @@ def _wf_format_predictions(
         probability output, and raw regression predictions (``None``
         for classification).
     """
-    from thesis.stage_4_training._lgbm_utils import _wrap_np
+    from thesis.stage_4_training.lgbm.utils import _wrap_np
 
     if is_regression:
         raw_preds = model.predict(_wrap_np(X_test, all_feature_cols))
@@ -373,7 +373,7 @@ def _wf_build_predict_phase(
         predictions, probabilities, trained LGBM model, feature
         columns, accuracy, diagnostics, and class ordering.
     """
-    from thesis.stage_4_training._lgbm_utils import (
+    from thesis.stage_4_training.lgbm.utils import (
         _compute_class_weights,
         _compute_distribution_shift_weights,
         _train_fixed,

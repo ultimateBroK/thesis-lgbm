@@ -1,16 +1,11 @@
 """Model training package for walk-forward GRU and LightGBM workflows."""
 
-from thesis.stage_4_training._baselines import (
+from thesis.stage_4_training.baselines import (
     compute_baseline_metrics,
     majority_class_baseline,
     naive_direction,
     random_baseline,
     run_all_baselines,
-)
-from thesis.stage_4_training._lgbm import train_model
-from thesis.stage_4_training._validation import (
-    WalkForwardWindow,
-    generate_windows,
 )
 from thesis.stage_4_training.gru import (
     extract_hidden_states,
@@ -20,6 +15,11 @@ from thesis.stage_4_training.gru import (
     prepare_sequences,
     save_gru_model,
     train_gru,
+)
+from thesis.stage_4_training.lgbm import train_model
+from thesis.stage_4_training.validation import (
+    WalkForwardWindow,
+    generate_windows,
 )
 
 __all__ = [

@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from thesis._shared.zones import _get_metric_zone, _is_extreme_value
+from thesis.shared.zones import _get_metric_zone, _is_extreme_value
 
 
 @pytest.mark.unit

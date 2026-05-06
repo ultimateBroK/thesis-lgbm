@@ -13,8 +13,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from thesis._shared.config import Config
-from thesis._shared.ui import console, stage_header, stage_skip
+from thesis.shared.config import Config
+from thesis.shared.ui import console, stage_header, stage_skip
 from thesis.stage_1_data import prepare_data
 from thesis.stage_2_features import generate_features
 from thesis.stage_3_labels import generate_labels

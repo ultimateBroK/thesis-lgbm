@@ -28,15 +28,15 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from thesis._shared.config import Config
-from thesis._shared.constants import (
+from thesis.shared.config import Config
+from thesis.shared.constants import (
     COSINE_T0,
     COSINE_TMULT,
     GRAD_CLIP_NORM,
     PLATEAU_PATIENCE,
     WARMUP_EPOCHS,
 )
-from thesis._shared.ui import console
+from thesis.shared.ui import console
 from thesis.stage_4_training.gru.arch import GRUExtractor
 from thesis.stage_4_training.gru.calibration import _calibrate_model
 from thesis.stage_4_training.gru.data import (

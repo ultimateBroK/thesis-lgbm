@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from thesis._shared.config import Config
-from thesis._shared.session_paths import (
+from thesis.shared.config import Config
+from thesis.shared.session_paths import (
     configure_session_paths,
     load_config_for_session,
 )

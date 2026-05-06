@@ -1,11 +1,11 @@
 """CFD backtest simulation package."""
 
-from ._impl import (
+from .simulation import (
     run_backtest,
     run_backtest_from_data,
     run_backtest_manual,
 )
-from ._strategy import HybridGRUStrategy
+from .strategy import HybridGRUStrategy
 
 __all__ = [
     "HybridGRUStrategy",

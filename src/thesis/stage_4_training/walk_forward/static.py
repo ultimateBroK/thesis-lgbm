@@ -11,10 +11,10 @@ from typing import Any
 import numpy as np
 import polars as pl
 
-from thesis._shared.config import Config
-from thesis._shared.constants import EXCLUDE_COLS
-from thesis._shared.ui import console
-from thesis.stage_4_training._validation import generate_windows, log_windows
+from thesis.shared.config import Config
+from thesis.shared.constants import EXCLUDE_COLS
+from thesis.shared.ui import console
+from thesis.stage_4_training.validation import generate_windows, log_windows
 from thesis.stage_4_training.walk_forward.hybrid import _compute_regression_target
 from thesis.stage_4_training.walk_forward.utils import (
     _CLASS_ORDER,
@@ -99,7 +99,7 @@ def _train_and_predict_static_window(
     Returns a dict with ``oof_chunk``, ``model``, ``static_cols``,
     ``accuracy``, and ``diag``, or ``None`` if the window is too small.
     """
-    from thesis.stage_4_training._lgbm_utils import (
+    from thesis.stage_4_training.lgbm.utils import (
         _compute_class_weights,
         _train_fixed,
         _wrap_np,
@@ -238,7 +238,7 @@ def _save_static_wf_artifacts(
     """
     import joblib
 
-    from thesis.stage_4_training._lgbm_utils import _save_feature_importance
+    from thesis.stage_4_training.lgbm.utils import _save_feature_importance
 
     if not all_oof_preds or last_lgbm_model is None:
         raise RuntimeError("No static OOF predictions generated")
@@ -436,7 +436,7 @@ def _run_static_train(config: Config) -> None:
     triple-barrier labels, boundary labels may use future information from the
     adjacent split. For thesis evaluation, use sliding validation instead.
     """
-    from thesis.stage_4_training._lgbm import train_model
+    from thesis.stage_4_training.lgbm import train_model
 
     logger.warning(
         "Static split mode does not apply purge/embargo — potential label leakage "

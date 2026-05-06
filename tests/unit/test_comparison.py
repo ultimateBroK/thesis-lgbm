@@ -10,8 +10,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from thesis._shared.config import Config
-from thesis.stage_6_reporting._comparison import (
+from thesis.shared.config import Config
+from thesis.stage_6_reporting.comparison import (
     _build_model_comparison_rows,
     _find_architecture_session,
     _pair_windows_by_date,

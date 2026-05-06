@@ -8,7 +8,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from thesis.stage_6_reporting._data_quality import (
+from thesis.stage_6_reporting.data_quality import (
     compute_data_quality_report,
     compute_label_distribution,
     compute_missing_bar_stats,
