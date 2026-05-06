@@ -1,6 +1,6 @@
 # Configuration
 
-This project keeps `config.toml` intentionally small. Public settings cover the experiment surface; hidden defaults live in `src/thesis/_shared/config.py`.
+This project keeps `config.toml` intentionally small. Public settings cover the experiment surface; hidden defaults live in `src/thesis/shared/config.py`.
 
 ## Current Default Profile
 
@@ -197,7 +197,7 @@ Backtest settings are demo controls, not the thesis proof. The thesis claim shou
 | `random_seed` | `2024` | Reproducibility seed. |
 | `n_jobs` | `-1` | Worker count. |
 
-Stage toggles, cache invalidation, paths, download options, and runtime session paths are hidden defaults in `src/thesis/_shared/config.py`.
+Stage toggles, cache invalidation, paths, download options, and runtime session paths are hidden defaults in `src/thesis/shared/config.py`.
 
 ## Fail-Fast Validation
 

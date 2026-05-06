@@ -138,7 +138,7 @@ thesis/
 │   ├── _shared/             # Shared: config, constants, UI, zones, session_paths
 │   ├── pipeline.py          # Thin orchestrator — runs stages 1–6
 │   ├── charts.py            # Interactive ECharts / pyecharts (supplementary)
-│   └── dashboard.py         # Streamlit dashboard (supplementary)
+│   └── dashboard/           # Streamlit dashboard (supplementary)
 ├── tests/                   # Test suite
 ├── data/raw/XAUUSD/         # Raw tick data
 ├── data/processed/          # Generated parquet files
