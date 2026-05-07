@@ -26,21 +26,19 @@ from thesis.shared.feature_registry import (
 )
 from thesis.shared.schemas import FeaturesSchema, OhlcvSchema
 from thesis.shared.ui import console
-from thesis.stage_2_features.indicators.core import (
+from thesis.stage_2_features.indicators import (
+    _add_adx,
     _add_atr,
     _add_context_features,
-    _add_macd,
-    _add_rsi,
-)
-from thesis.stage_2_features.indicators.trend import (
-    _add_adx,
     _add_ema_crossover,
     _add_ema_slope,
     _add_high_low_range,
     _add_log_returns,
+    _add_macd,
     _add_ohlcv_norm,
     _add_price_action_features,
     _add_regime,
+    _add_rsi,
     _add_volume_zscore,
 )
 
@@ -51,21 +49,7 @@ logger = logging.getLogger("thesis.stage_2_features")
 
 
 def generate_features(config: Config) -> None:
-    """Generate and persist feature-enriched OHLCV bars.
-
-    Loads OHLCV data from ``config.paths.ohlcv``, computes technical
-    indicators and normalized/session features, drops warm-up rows with
-    incomplete or non-finite model-facing features, writes the enriched bars
-    to ``config.paths.features``, and saves a sidecar JSON file listing the
-    produced feature column names.
-
-    Args:
-        config: Application configuration containing input/output paths
-            and feature parameters.
-
-    Raises:
-        FileNotFoundError: If the OHLCV parquet file does not exist.
-    """
+    """Generate and persist feature-enriched OHLCV bars."""
     ohlcv_path = Path(config.paths.ohlcv)
     if not ohlcv_path.exists():
         raise FileNotFoundError(f"OHLCV not found: {ohlcv_path}")
@@ -77,39 +61,24 @@ def generate_features(config: Config) -> None:
     OhlcvSchema.validate(df)
     _validate_ohlcv_input(df, config)
 
-    # --- Core price-volatility anchor ---
     df = _add_atr(df, config)
-
-    # --- Price-action + session context ---
     df = _add_context_features(df, config)
-
-    # --- Price-action structure ---
     df = _add_price_action_features(df, config)
     df = _add_ema_crossover(df, config)
-
     df = _add_log_returns(df, config)
     df = _add_high_low_range(df, config)
-
-    # --- Trend quality ---
     df = _add_adx(df, config)
     df = _add_ema_slope(df, config)
-
-    # --- Regime composite ---
     df = _add_regime(df)
-
-    # --- Minimal indicators ---
     df = _add_rsi(df, config)
     df = _add_macd(df, config)
     df = _add_volume_zscore(df, config)
-
-    # --- Normalized raw prices for GRU sequence input ---
     df = _add_ohlcv_norm(df)
 
-    # Backward compatibility: GRU pipeline may request `log_returns`.
+    # GRU pipeline may reference `log_returns` as a legacy column name.
     if "return_1h" in df.columns and "log_returns" not in df.columns:
         df = df.with_columns(pl.col("return_1h").alias("log_returns"))
 
-    # Keep compact model-facing features plus raw ATR needed by label barriers.
     desired_cols = build_feature_output_cols(config)
     existing_cols = [c for c in desired_cols if c in df.columns]
     df = df.select(existing_cols)
@@ -119,18 +88,15 @@ def generate_features(config: Config) -> None:
     df = _drop_warmup_rows(df, keep_features)
     _validate_feature_quality(df, config)
 
-    # Persist
     FeaturesSchema.validate(df, config)
     out_path = Path(config.paths.features)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df.write_parquet(out_path)
 
-    feature_cols = sorted(
-        c
-        for c in df.columns
-        if c
-        in (set(get_static_feature_cols(config)) | set(get_gru_feature_cols(config)))
+    all_model_cols = set(get_static_feature_cols(config)) | set(
+        get_gru_feature_cols(config)
     )
+    feature_cols = sorted(c for c in df.columns if c in all_model_cols)
     _save_feature_list(out_path, feature_cols)
 
     logger.info(
@@ -143,16 +109,7 @@ def generate_features(config: Config) -> None:
 
 
 def _validate_ohlcv_input(df: pl.DataFrame, config: Config) -> None:
-    """Log timestamp continuity checks before rolling feature generation.
-
-    Args:
-        df: OHLCV DataFrame to validate.
-        config: Application configuration.
-
-    Raises:
-        ValueError: If DataFrame is empty, timestamps are unsorted,
-            or timestamps are not unique.
-    """
+    """Raise on empty, unsorted, or duplicate timestamps; log gap stats."""
     if df.is_empty():
         raise ValueError("OHLCV is empty; cannot generate features")
 
@@ -191,18 +148,7 @@ def _validate_ohlcv_input(df: pl.DataFrame, config: Config) -> None:
 
 
 def _drop_warmup_rows(df: pl.DataFrame, feature_cols: list[str]) -> pl.DataFrame:
-    """Drop rows whose model-facing features are incomplete or non-finite.
-
-    Args:
-        df: Feature DataFrame.
-        feature_cols: Column names that must be finite and non-null.
-
-    Returns:
-        DataFrame with warm-up rows removed.
-
-    Raises:
-        ValueError: If no rows remain after warm-up removal.
-    """
+    """Drop rows with null/non-finite model-facing features."""
     existing_features = [c for c in feature_cols if c in df.columns]
     n_before = len(df)
     df = df.fill_nan(None).drop_nulls(subset=existing_features)
@@ -223,7 +169,7 @@ def _drop_warmup_rows(df: pl.DataFrame, feature_cols: list[str]) -> pl.DataFrame
 
 
 def _validate_feature_quality(df: pl.DataFrame, config: Config) -> None:
-    """Pandera quality checks for leakage-sensitive feature dataset."""
+    """Pandera + timestamp/uniqueness/null checks on the feature dataset."""
     p = config.features.rsi_period
     checks: dict[str, pa.Column] = {
         "timestamp": pa.Column(nullable=False),
@@ -251,13 +197,7 @@ def _validate_feature_quality(df: pl.DataFrame, config: Config) -> None:
 
 
 def _save_feature_list(features_path: Path, feature_cols: list[str]) -> None:
-    """Write a JSON sidecar listing feature column names.
-
-    Args:
-        features_path: Path to the features parquet file (sidecar is written
-            alongside with ``.feature_list.json`` suffix).
-        feature_cols: List of feature column names to save.
-    """
+    """Write a JSON sidecar listing feature column names."""
     list_path = features_path.with_suffix(".feature_list.json")
     with open(list_path, "w") as f:
         json.dump(feature_cols, f, indent=2)

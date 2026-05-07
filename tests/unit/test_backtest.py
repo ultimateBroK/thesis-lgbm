@@ -22,7 +22,7 @@ from thesis.stage_5_backtest import (
 )
 from thesis.stage_5_backtest.simulation import (
     _prepare_df,
-    _run_bt,
+    _run_fractional_backtest,
 )
 from thesis.stage_5_backtest.strategy import _calendar_day
 
@@ -259,7 +259,7 @@ def test_no_lookahead_bias(sample_config: Config) -> None:
     n_rows = 10
     test_df, preds_df = create_synthetic_backtest_data(n_rows, "all_long")
     pdf = _prepare_df(test_df, preds_df)
-    stats, _bt = _run_bt(pdf, sample_config)
+    stats, _bt = _run_fractional_backtest(pdf, sample_config)
     trades = stats["_trades"]
 
     # backtesting.py evaluates signals only after bars are complete and fills
@@ -282,7 +282,7 @@ def test_signal_uses_index_minus_2(sample_config: Config) -> None:
     import numpy as np
     import polars as pl
 
-    from thesis.stage_5_backtest.simulation import _prepare_df, _run_bt
+    from thesis.stage_5_backtest.simulation import _prepare_df, _run_fractional_backtest
 
     n_rows = 5
     timestamps = pl.datetime_range(
@@ -322,7 +322,7 @@ def test_signal_uses_index_minus_2(sample_config: Config) -> None:
     )
 
     pdf = _prepare_df(test_df, preds_df)
-    stats, _bt = _run_bt(pdf, sample_config)
+    stats, _bt = _run_fractional_backtest(pdf, sample_config)
     trades = stats["_trades"]
 
     # Guard: bar 0 has len(signals)=1 → no trade at bar 0.
@@ -872,8 +872,6 @@ def _apply_oos_filter(
     oob_end_date: str = "",
 ) -> pd.DataFrame:
     """Apply the OOS date-range filter logic from run_backtest.
-
-    Replicates the filtering from _impl.py:run_backtest lines 944-960.
     """
     if oob_start_date:
         start_ts = pd.Timestamp(oob_start_date)

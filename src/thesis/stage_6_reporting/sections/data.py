@@ -16,25 +16,13 @@ import polars as pl
 
 from thesis.shared.config import Config
 from thesis.stage_6_reporting import data_quality
+from thesis.stage_6_reporting.md_format import (
+    _fmt_f2,  # noqa: F401
+    _fmt_pct,  # noqa: F401
+    _tbl_row,
+)
 
 logger = logging.getLogger("thesis.report")
-
-# ---------------------------------------------------------------------------
-# Tiny formatting helpers (shared with other sections modules)
-# ---------------------------------------------------------------------------
-
-
-def _tbl_row(*cells: str) -> str:
-    return "| " + " | ".join(cells) + " |"
-
-
-def _fmt_pct(v: float) -> str:
-    return f"{v:.1f}%"
-
-
-def _fmt_f2(v: float) -> str:
-    return f"{v:.2f}"
-
 
 # ---------------------------------------------------------------------------
 # Support functions

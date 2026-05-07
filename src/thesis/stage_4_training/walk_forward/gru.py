@@ -6,7 +6,6 @@ OOF prediction and reporting contract used by static and hybrid workflows.
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 import time
@@ -23,16 +22,19 @@ from thesis.stage_4_training.gru import (
     save_gru_model,
     train_gru,
 )
-from thesis.stage_4_training.walk_forward.artifacts import _build_wf_history
+from thesis.stage_4_training.walk_forward.artifacts import (
+    _log_walk_forward_complete,
+    _save_arch_copy,
+    _save_oof_predictions,
+    _save_training_history,
+    _save_walk_forward_history,
+)
 from thesis.stage_4_training.walk_forward.hybrid import _prepare_wf_data
 from thesis.stage_4_training.walk_forward.utils import (
     _CLASS_ORDER,
-    _add_confidence_columns,
     _add_prediction_diagnostics,
     _probability_columns,
-    _validate_predictions,
     _window_diagnostics,
-    _write_prediction_manifest,
 )
 
 logger = logging.getLogger("thesis.pipeline")
@@ -40,7 +42,7 @@ logger = logging.getLogger("thesis.pipeline")
 _VALIDATION_SPLIT_FRACTION = 0.2
 
 
-def _run_gru_only_window(
+def _run_gru_window(
     config: Config,
     w_idx: int,
     window: Any,
@@ -132,7 +134,7 @@ def _run_gru_only_window(
     }
 
 
-def _save_gru_only_artifacts(
+def _save_gru_artifacts(
     config: Config,
     all_oof_preds: list[pl.DataFrame],
     last_model: Any,
@@ -150,16 +152,10 @@ def _save_gru_only_artifacts(
     if not all_oof_preds or last_model is None or last_classifier is None:
         raise RuntimeError("No GRU-only OOF predictions generated")
 
-    oof_df = _add_confidence_columns(pl.concat(all_oof_preds))
-    preds_path = Path(config.paths.predictions)
-    preds_path.parent.mkdir(parents=True, exist_ok=True)
-    _validate_predictions(oof_df, preds_path)
-    oof_df.write_parquet(preds_path)
-    oof_df.write_csv(preds_path.with_suffix(".csv"))
-    _write_prediction_manifest(
-        oof_df,
-        preds_path,
-        windows_count=len(window_diagnostics),
+    oof_df = _save_oof_predictions(
+        config,
+        all_oof_preds=all_oof_preds,
+        window_diagnostics=window_diagnostics,
     )
 
     if config.paths.session_dir:
@@ -178,42 +174,42 @@ def _save_gru_only_artifacts(
         per_window_accuracies = {
             str(d.get("window")): d.get("accuracy") for d in window_diagnostics
         }
-        history_path = models_dir / "training_history.json"
-        with history_path.open("w") as f:
-            json.dump(
-                {
-                    "architecture": "gru",
-                    "gru": last_history,
-                    "deployment_note": (
-                        f"Model saved from window {last_window_index}/{len(windows)} "
-                        "(the last chronological walk-forward window). "
-                        "This model has NOT seen any future data beyond its "
-                        "training window."
-                    ),
-                    "last_window_accuracy": last_window_accuracy,
-                    "per_window_accuracies": per_window_accuracies,
-                },
-                f,
-                indent=2,
-            )
+        _save_training_history(
+            config,
+            {
+                "architecture": "gru",
+                "gru": last_history,
+                "deployment_note": (
+                    f"Model saved from window {last_window_index}/{len(windows)} "
+                    "(the last chronological walk-forward window). "
+                    "This model has NOT seen any future data beyond its "
+                    "training window."
+                ),
+                "last_window_accuracy": last_window_accuracy,
+                "per_window_accuracies": per_window_accuracies,
+            },
+        )
+        _save_walk_forward_history(
+            config,
+            windows=windows,
+            window_diagnostics=window_diagnostics,
+            oof_len=len(oof_df),
+            architecture="gru",
+        )
 
-        wf_path = session_dir / "reports" / "walk_forward_history.json"
-        wf_path.parent.mkdir(parents=True, exist_ok=True)
-        wf_history = _build_wf_history(windows, window_diagnostics, len(oof_df))
-        wf_history["architecture"] = "gru"
-        with wf_path.open("w") as f:
-            json.dump(wf_history, f, indent=2)
-
-    logger.info(
-        "GRU-only walk-forward complete: %d windows, %d OOF predictions (%.1fs)",
-        len(windows),
-        len(oof_df),
-        time.perf_counter() - stage_start,
+    _log_walk_forward_complete(
+        arch_name="gru",
+        windows_count=len(windows),
+        oof_len=len(oof_df),
+        stage_start=stage_start,
+        prefix="GRU-only walk-forward complete",
     )
 
+    _save_arch_copy(oof_df, "gru", config)
 
-def _run_walk_forward_gru_only(config: Config) -> None:
-    """Execute standalone GRU walk-forward training across all windows."""
+
+def train_gru_walk_forward(config: Config) -> None:
+    """Train GRU with walk-forward validation."""
     df, windows, _, _ = _prepare_wf_data(config)
 
     all_oof_preds: list[pl.DataFrame] = []
@@ -243,7 +239,7 @@ def _run_walk_forward_gru_only(config: Config) -> None:
             window.test_end_idx,
         )
 
-        result = _run_gru_only_window(config, w_idx, window, df)
+        result = _run_gru_window(config, w_idx, window, df)
         if result is None:
             continue
 
@@ -263,7 +259,7 @@ def _run_walk_forward_gru_only(config: Config) -> None:
             time.perf_counter() - window_start,
         )
 
-    _save_gru_only_artifacts(
+    _save_gru_artifacts(
         config,
         all_oof_preds,
         last_model,

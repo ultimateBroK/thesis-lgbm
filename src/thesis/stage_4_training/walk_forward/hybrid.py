@@ -340,7 +340,7 @@ def _wf_format_predictions(
         preds = np.where(
             raw_preds > _REGRESSION_DIRECTION_THRESHOLD,
             1,
-            np.where(raw_preds < _REGRESSION_DIRECTION_THRESHOLD, 0, 0),
+            np.where(raw_preds < _REGRESSION_DIRECTION_THRESHOLD, -1, 0),
         ).astype(np.int32)
         aligned_proba = np.zeros((len(raw_preds), 3), dtype=np.float64)
         for i, p in enumerate(preds):
@@ -548,8 +548,8 @@ def _collect_oof_predictions(
     )
 
 
-def _run_walk_forward_hybrid(config: Config) -> None:
-    """Execute walk-forward hybrid training across all windows.
+def train_hybrid_walk_forward(config: Config) -> None:
+    """Train hybrid (GRU → LightGBM) with walk-forward validation.
 
     Orchestration: load → windows → loop(GRU→PCA→LGBM→collect) → save.
     Each step delegates to a focused helper ≤ 80 lines.

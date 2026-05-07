@@ -1,8 +1,7 @@
-"""Static (LGBM-only) walk-forward training loop and traditional split path."""
+"""LightGBM training entry points (walk-forward + fixed split)."""
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 import time
@@ -15,18 +14,22 @@ from thesis.shared.config import Config
 from thesis.shared.constants import EXCLUDE_COLS
 from thesis.shared.ui import console
 from thesis.stage_4_training.validation import generate_windows, log_windows
+from thesis.stage_4_training.walk_forward.artifacts import (
+    _log_walk_forward_complete,
+    _save_arch_copy,
+    _save_oof_predictions,
+    _save_training_history,
+    _save_walk_forward_history,
+)
 from thesis.stage_4_training.walk_forward.hybrid import _compute_regression_target
 from thesis.stage_4_training.walk_forward.utils import (
     _CLASS_ORDER,
-    _add_confidence_columns,
     _add_prediction_diagnostics,
     _align_probability_matrix,
     _one_hot_proba_columns,
     _probability_columns,
     _select_static_feature_cols,
-    _validate_predictions,
     _window_diagnostics,
-    _write_prediction_manifest,
     fit_static_feature_pipeline,
 )
 
@@ -217,7 +220,7 @@ def _train_and_predict_static_window(
     }
 
 
-def _save_static_wf_artifacts(
+def _save_lgbm_wf_artifacts(
     config: Config,
     all_oof_preds: list[pl.DataFrame],
     last_lgbm_model: Any,
@@ -252,18 +255,10 @@ def _save_static_wf_artifacts(
     if not all_oof_preds or last_lgbm_model is None:
         raise RuntimeError("No static OOF predictions generated")
 
-    oof_df = pl.concat(all_oof_preds)
-    oof_df = _add_confidence_columns(oof_df)
-
-    preds_path = Path(config.paths.predictions)
-    preds_path.parent.mkdir(parents=True, exist_ok=True)
-    _validate_predictions(oof_df, preds_path)
-    oof_df.write_parquet(preds_path)
-    oof_df.write_csv(preds_path.with_suffix(".csv"))
-    _write_prediction_manifest(
-        oof_df,
-        preds_path,
-        windows_count=len(window_diagnostics),
+    oof_df = _save_oof_predictions(
+        config,
+        all_oof_preds=all_oof_preds,
+        window_diagnostics=window_diagnostics,
     )
 
     model_path = Path(config.paths.model)
@@ -272,10 +267,6 @@ def _save_static_wf_artifacts(
     _save_feature_importance(last_lgbm_model, last_feature_cols, config)
 
     if config.paths.session_dir:
-        models_dir = Path(config.paths.session_dir) / "models"
-        models_dir.mkdir(parents=True, exist_ok=True)
-        history_path = models_dir / "training_history.json"
-
         # Build per-window accuracy map from diagnostics
         per_window_accuracies: dict[str, float | None] = {}
         for d in window_diagnostics:
@@ -289,79 +280,50 @@ def _save_static_wf_artifacts(
             "This model has NOT seen any future data beyond its training window."
         )
 
-        with open(history_path, "w") as f:
-            json.dump(
-                {
-                    "architecture": "static",
-                    "lightgbm": {
-                        "artifact_strategy": "last_walk_forward_window",
-                        "validation_protocol": {
-                            "outer_windows": (
-                                "bar_based_walk_forward_with_purge_embargo"
-                            ),
-                            "lgbm_validation": "tail_20_percent_of_outer_train",
-                        },
-                        "last_window_accuracy": last_window_accuracy,
-                        "best_iteration": int(last_lgbm_model.best_iteration_)
-                        if hasattr(last_lgbm_model, "best_iteration_")
-                        else None,
-                        "n_features": len(last_feature_cols),
-                        "n_classes": len(last_lgbm_model.classes_)
-                        if hasattr(last_lgbm_model, "classes_")
-                        else None,
+        _save_training_history(
+            config,
+            {
+                "architecture": "lgbm",
+                "lightgbm": {
+                    "artifact_strategy": "last_walk_forward_window",
+                    "validation_protocol": {
+                        "outer_windows": "bar_based_walk_forward_with_purge_embargo",
+                        "lgbm_validation": "tail_20_percent_of_outer_train",
                     },
-                    "deployment_note": deployment_note,
-                    "per_window_accuracies": per_window_accuracies,
+                    "last_window_accuracy": last_window_accuracy,
+                    "best_iteration": int(last_lgbm_model.best_iteration_)
+                    if hasattr(last_lgbm_model, "best_iteration_")
+                    else None,
+                    "n_features": len(last_feature_cols),
+                    "n_classes": len(last_lgbm_model.classes_)
+                    if hasattr(last_lgbm_model, "classes_")
+                    else None,
                 },
-                f,
-                indent=2,
-            )
-
-        wf_path = (
-            Path(config.paths.session_dir) / "reports" / "walk_forward_history.json"
+                "deployment_note": deployment_note,
+                "per_window_accuracies": per_window_accuracies,
+            },
         )
-        wf_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(wf_path, "w") as f:
-            json.dump(
-                {
-                    "architecture": "static",
-                    "num_windows": len(windows),
-                    "total_oof_predictions": len(oof_df),
-                    "window_details": [
-                        {
-                            "window": i + 1,
-                            "train_start_idx": w.train_start_idx,
-                            "train_end_idx": w.train_end_idx,
-                            "test_start_idx": w.test_start_idx,
-                            "test_end_idx": w.test_end_idx,
-                            **next(
-                                (
-                                    item
-                                    for item in window_diagnostics
-                                    if item["window"] == i + 1
-                                ),
-                                {},
-                            ),
-                        }
-                        for i, w in enumerate(windows)
-                    ],
-                },
-                f,
-                indent=2,
-            )
+        _save_walk_forward_history(
+            config,
+            windows=windows,
+            window_diagnostics=window_diagnostics,
+            oof_len=len(oof_df),
+            architecture="lgbm",
+        )
 
-    logger.info(
-        "Static walk-forward complete: %d windows, %d OOF predictions (%.1fs)",
-        len(windows),
-        len(oof_df),
-        time.perf_counter() - stage_start,
+    _log_walk_forward_complete(
+        arch_name="lgbm",
+        windows_count=len(windows),
+        oof_len=len(oof_df),
+        stage_start=stage_start,
+        prefix="LGBM walk-forward complete",
     )
 
+    _save_arch_copy(oof_df, "lgbm", config)
 
-def _run_walk_forward_static(
-    config: Config, *, expanded_features: bool = False
-) -> None:
-    """Execute a static-feature-only walk-forward baseline.
+
+def train_lgbm_walk_forward(config: Config, *, expanded_features: bool = False) -> None:
+    """Train LightGBM with walk-forward validation.
 
     Isolates whether GRU hidden states add value. Uses event-time purged
     windows, LightGBM, sample weights, and OOF prediction output. When
@@ -386,11 +348,10 @@ def _run_walk_forward_static(
     for w_idx, window in enumerate(windows):
         window_start = time.perf_counter()
         console.rule(
-            f"[bold cyan]Static window {w_idx + 1}/{len(windows)}[/]",
-            style="cyan",
+            f"[bold cyan]LGBM window {w_idx + 1}/{len(windows)}[/]", style="cyan"
         )
         logger.info(
-            "=== Static window %d/%d: train=[%d:%d] test=[%d:%d] ===",
+            "=== LGBM window %d/%d: train=[%d:%d] test=[%d:%d] ===",
             w_idx + 1,
             len(windows),
             window.train_start_idx,
@@ -416,13 +377,13 @@ def _run_walk_forward_static(
         last_window_accuracy = result["accuracy"]
         last_window_index = w_idx + 1
         logger.info(
-            "Static window %d done (%.1fs)",
+            "LGBM window %d done (%.1fs)",
             w_idx + 1,
             time.perf_counter() - window_start,
         )
 
     # 3. Validate and persist
-    _save_static_wf_artifacts(
+    _save_lgbm_wf_artifacts(
         config,
         all_oof_preds,
         last_lgbm_model,
@@ -435,20 +396,20 @@ def _run_walk_forward_static(
     )
 
 
-def _run_static_train(config: Config) -> None:
-    """Run traditional static train/val/test split training.
+def train_lgbm_fixed(config: Config) -> None:
+    """Train LightGBM using the fixed train/val/test split.
 
     Args:
         config: Application configuration.
 
-    Static split does not apply purge or embargo at the split boundary. With
-    triple-barrier labels, boundary labels may use future information from the
-    adjacent split. For thesis evaluation, use sliding validation instead.
+    Fixed split does not apply purge or embargo at split boundaries. With
+    triple-barrier labels, boundary samples can leak future information from
+    the adjacent split. For evaluation, prefer walk-forward validation.
     """
     from thesis.stage_4_training.lgbm import train_model
 
     logger.warning(
-        "Static split mode does not apply purge/embargo — potential label leakage "
+        "Fixed split mode does not apply purge/embargo — potential label leakage "
         "at split boundaries. Recommended: validation.method = 'sliding'."
     )
     train_model(config)

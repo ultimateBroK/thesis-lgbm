@@ -17,9 +17,9 @@ from thesis.stage_6_reporting.comparison import (
     _pair_windows_by_date,
     _parse_date,
     _static_vs_hybrid_comparison,
-    _tbl_row,
     _write_model_comparison_artifacts,
 )
+from thesis.stage_6_reporting.md_format import _tbl_row
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +210,17 @@ class TestFindArchitectureSession:
         snapshot.write_text('[model]\narchitecture = "static"\n')
 
         result = _find_architecture_session(tmp_path, "static", "/other")
+        assert result == session
+
+    def test_finds_lgbm_session(self, tmp_path) -> None:
+        session = tmp_path / "XAUUSD_1H_20240102"
+        session.mkdir()
+        config_dir = session / "config"
+        config_dir.mkdir()
+        snapshot = config_dir / "config_snapshot.toml"
+        snapshot.write_text('[model]\narchitecture = "lgbm"\n')
+
+        result = _find_architecture_session(tmp_path, "lgbm", "/other")
         assert result == session
 
     def test_excludes_current_session(self, tmp_path) -> None:

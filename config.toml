@@ -1,15 +1,17 @@
 # Public experiment configuration.
 # Hidden defaults live in src/thesis/shared/config.py.
 
+# ── Data source ──────────────────────────────────────────────────────────────
 [data]
-symbol = "XAUUSD"
-timeframe = "1H"
-market_tz = "America/New_York"
-start_date = "2018-01-01"
-end_date = "2026-04-30"
-tick_size = 0.01
-contract_size = 100
+symbol = "XAUUSD"                    # Ticker to trade
+timeframe = "1H"                     # Bar granularity
+market_tz = "America/New_York"       # Exchange timezone
+start_date = "2021-01-01"            # Ingestion start (raw data)
+end_date = "2026-04-30"              # Ingestion end (raw data)
+tick_size = 0.01                     # Minimum price increment
+contract_size = 100                  # Ounce value per lot
 
+# ── Train / val / test split boundaries ──────────────────────────────────────
 [splitting]
 train_start = "2021-01-01"
 train_end = "2024-12-31 23:59:59"
@@ -18,85 +20,94 @@ val_end = "2025-12-31 23:59:59"
 test_start = "2026-01-01"
 test_end = "2026-04-30 23:59:59"
 
+# ── Walk-forward validation ─────────────────────────────────────────────────
 [validation]
-# Sliding walk-forward: 1-year train, 1-month test windows.
+# Sliding walk-forward: 1-year train, 2-month test windows.
 method = "sliding"
 train_window_bars = 8760   # ~1 year on 1H bars
-test_window_bars = 720     # ~1 month on 1H bars
-step_bars = 720            # non-overlapping test windows
+test_window_bars = 1440    # ~2 months on 1H bars
+step_bars = 1440           # non-overlapping 2-month test windows
 purge_bars = 48            # 2x 24h horizon; above typical trade hold time
 embargo_bars = 50
 min_train_bars = 6000
 
-# static_feature_cols are the default LightGBM features. See thesis.shared.feature_registry for the canonical column lists.
+# ── Feature engineering ──────────────────────────────────────────────────────
+# static_feature_cols are the default LightGBM features.
+# See thesis.shared.feature_registry for the canonical column lists.
 [features]
-rsi_period = 14
-atr_period = 14
-adx_period = 14
-ema_slope_period = 20
-macd_fast = 12
-macd_slow = 26
-macd_signal = 9
-correlation_threshold = 0.75
+rsi_period = 14                   # RSI lookback
+atr_period = 14                   # ATR lookback
+adx_period = 14                   # ADX lookback
+ema_slope_period = 20             # EMA slope lookback
+macd_fast = 12                    # MACD fast EMA
+macd_slow = 26                    # MACD slow EMA
+macd_signal = 9                   # MACD signal line
+correlation_threshold = 0.75      # Drop features above this pairwise correlation
 
+# ── Label generation ─────────────────────────────────────────────────────────
 [labels]
-atr_tp_multiplier = 2.0
-atr_sl_multiplier = 2.0
-horizon_bars = 24
+atr_tp_multiplier = 3.0           # Take-profit = multiplier × ATR (was 2.0)
+atr_sl_multiplier = 1.5           # Stop-loss   = multiplier × ATR (was 2.0)
+horizon_bars = 24                 # Forward-looking window (hours)
 
+# ── Model selection ──────────────────────────────────────────────────────────
+# Architecture options: "hybrid" (GRU+LGBM), "lgbm" (LightGBM only), "gru" (GRU only)
 [model]
-architecture = "hybrid"  # "static" or "hybrid"
-objective = "multiclass"
-static_expanded = false
-num_leaves = 31
-max_depth = 6
-learning_rate = 0.02
-n_estimators = 500
-min_child_samples = 50
-subsample = 0.80
-subsample_freq = 5
-feature_fraction = 0.70
-reg_alpha = 0.05
-reg_lambda = 5.0
-early_stopping_rounds = 40
+architecture = "hybrid"
+objective = "multiclass"           # Classification target: buy / hold / sell
+lgbm_expanded_features = false    # Whether to use expanded feature set for LightGBM
+num_leaves = 31                   # Max leaves per tree
+max_depth = 6                     # Max tree depth
+learning_rate = 0.02              # Boosting learning rate
+n_estimators = 300                # Number of boosting rounds (was 500)
+min_child_samples = 50            # Min samples per leaf
+subsample = 0.80                  # Row subsample ratio
+subsample_freq = 5                # Subsample every N rounds
+feature_fraction = 0.70           # Column subsample per tree
+reg_alpha = 0.05                  # L1 regularization
+reg_lambda = 5.0                  # L2 regularization
+early_stopping_rounds = 25        # Stop if no improvement for N rounds (was 40)
 
+# ── GRU neural network ──────────────────────────────────────────────────────
 [gru]
-objective = "multiclass"
-hidden_size = 64
-num_layers = 2
-sequence_length = 48
-dropout = 0.3
-learning_rate = 0.0005
-batch_size = 256
-epochs = 100
-patience = 20
-min_epochs = 10
-bidirectional = false
-gradient_accumulation_steps = 1
-warmup_epochs = 3
-contrastive_pretrain_epochs = 10
-temperature_scaling = false
-pca_components = 16
+objective = "multiclass"           # Same classification target
+hidden_size = 32                   # Reduced from 64 — less overfitting
+num_layers = 1                     # Single layer — less overfitting
+sequence_length = 24               # Input lookback window (was 48 — faster)
+dropout = 0.5                      # Stronger regularization (was 0.3)
+learning_rate = 0.0005             # Adam optimizer learning rate
+batch_size = 512                   # Samples per gradient step (was 256 — faster)
+epochs = 30                        # Max training epochs (was 50 — GRU overfits early)
+patience = 7                       # Early-stopping patience (was 10)
+min_epochs = 5                     # Minimum epochs before early stopping (was 10)
+bidirectional = false              # Single-direction GRU
+gradient_accumulation_steps = 1    # Accumulate gradients over N steps
+warmup_epochs = 2                  # LR warmup period (was 3)
+contrastive_pretrain_epochs = 5    # Contrastive pre-training rounds (was 10)
+temperature_scaling = false        # Post-hoc probability calibration
+pca_components = 8                 # PCA dims for GRU input (was 16 — less noise)
 
+# ── Backtesting engine ──────────────────────────────────────────────────────
 [backtest]
-initial_capital = 10000.0
-leverage = 10
-spread_ticks = 35
-slippage_ticks = 5
-commission_per_lot = 10.0
-atr_stop_multiplier = 2.0
-atr_tp_multiplier = 2.0
-lots_per_trade = 0.01
-min_lots = 0.01
-max_lots = 0.5
-confidence_threshold = 0.50
-min_bars_between_trades = 6
-max_drawdown_cutoff = 0.30
-dd_cooldown_bars = 12
-max_open_positions = 1
-daily_loss_limit = 0.03
+initial_capital = 10000.0          # Starting account equity
+leverage = 10                      # Broker leverage multiplier
+spread_ticks = 35                  # Bid-ask spread in ticks
+slippage_ticks = 5                 # Execution slippage in ticks
+commission_per_lot = 10.0          # Round-turn commission per lot
+atr_stop_multiplier = 1.5          # ATR-based stop-loss (aligned with labels)
+atr_tp_multiplier = 3.0            # ATR-based take-profit (aligned with labels)
+lots_per_trade = 0.02              # Default position size (was 0.01)
+min_lots = 0.01                    # Minimum allowed lots
+max_lots = 0.5                     # Maximum allowed lots
+confidence_threshold = 0.50        # Min model confidence to trade
+min_bars_between_trades = 18       # Cooldown bars between entries (was 12)
+max_drawdown_cutoff = 0.30         # Halt trading if drawdown exceeds this
+dd_cooldown_bars = 12              # Cooldown after max drawdown trigger
+max_open_positions = 1             # Concurrent position limit
+daily_loss_limit = 0.03            # Halt if daily loss exceeds 3% of equity
 
+# ── Workflow controls ───────────────────────────────────────────────────────
 [workflow]
-force_rerun = false
-random_seed = 2024
-n_jobs = -1
+force_rerun = false                # Ignore cached intermediates
+random_seed = 2024                 # Global reproducibility seed
+n_jobs = -1                        # Parallel workers (-1 = all cores)

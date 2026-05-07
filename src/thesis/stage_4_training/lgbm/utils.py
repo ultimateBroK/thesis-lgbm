@@ -278,9 +278,7 @@ def _train_fixed(
         """Emit sparse boosting progress logs."""
         if env.iteration % 50 == 0 or env.iteration == env.end_iteration - 1:
             v_loss = (
-                env.evaluation_result_list[0][2]
-                if env.evaluation_result_list
-                else 0.0
+                env.evaluation_result_list[0][2] if env.evaluation_result_list else 0.0
             )
             logger.info("LightGBM iter=%d val_loss=%.5f", env.iteration, v_loss)
 

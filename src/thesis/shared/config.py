@@ -54,8 +54,8 @@ class ValidationConfig:
 
     method: str = "sliding"
     train_window_bars: int = 8760
-    test_window_bars: int = 720
-    step_bars: int = 720
+    test_window_bars: int = 1440
+    step_bars: int = 1440
     purge_bars: int = 48
     embargo_bars: int = 50
     min_train_bars: int = 6000
@@ -97,8 +97,8 @@ class FeaturesConfig:
 class LabelsConfig:
     """Triple-barrier label settings."""
 
-    atr_tp_multiplier: float = 2.0
-    atr_sl_multiplier: float = 2.0
+    atr_tp_multiplier: float = 3.0
+    atr_sl_multiplier: float = 1.5
     horizon_bars: int = 24
     num_classes: int = 3
     min_atr: float = 0.5
@@ -110,18 +110,18 @@ class LGBMConfig:
 
     architecture: str = "hybrid"
     objective: str = "multiclass"
-    static_expanded: bool = False
+    lgbm_expanded_features: bool = False
     num_leaves: int = 31
     max_depth: int = 6
     learning_rate: float = 0.02
-    n_estimators: int = 500
+    n_estimators: int = 300
     min_child_samples: int = 50
     subsample: float = 0.80
     subsample_freq: int = 5
     feature_fraction: float = 0.70
     reg_alpha: float = 0.05
     reg_lambda: float = 5.0
-    early_stopping_rounds: int = 40
+    early_stopping_rounds: int = 25
 
 
 @dataclass
@@ -154,22 +154,22 @@ class GRUConfig:
             "close_norm",
         ]
     )
-    hidden_size: int = 64
-    num_layers: int = 2
-    sequence_length: int = 48
-    dropout: float = 0.3
+    hidden_size: int = 32
+    num_layers: int = 1
+    sequence_length: int = 24
+    dropout: float = 0.5
     learning_rate: float = 0.0005
-    batch_size: int = 256
-    epochs: int = 100
-    patience: int = 20
-    min_epochs: int = 10
+    batch_size: int = 512
+    epochs: int = 30
+    patience: int = 7
+    min_epochs: int = 5
     bidirectional: bool = False
     gradient_accumulation_steps: int = 1
     focal_loss_gamma: float = 2.0
-    warmup_epochs: int = 3
-    contrastive_pretrain_epochs: int = 10
+    warmup_epochs: int = 2
+    contrastive_pretrain_epochs: int = 5
     temperature_scaling: bool = False
-    pca_components: int = 16
+    pca_components: int = 8
 
 
 @dataclass
@@ -181,13 +181,13 @@ class BacktestConfig:
     spread_ticks: float = 35.0
     slippage_ticks: float = 5.0
     commission_per_lot: float = 10.0
-    atr_stop_multiplier: float = 2.0
-    atr_tp_multiplier: float = 2.0
-    lots_per_trade: float = 0.01
+    atr_stop_multiplier: float = 1.5
+    atr_tp_multiplier: float = 3.0
+    lots_per_trade: float = 0.02
     min_lots: float = 0.01
     max_lots: float = 0.5
     confidence_threshold: float = 0.50
-    min_bars_between_trades: int = 6
+    min_bars_between_trades: int = 18
     max_drawdown_cutoff: float = 0.30
     dd_cooldown_bars: int = 12
     max_open_positions: int = 1

@@ -59,7 +59,7 @@ def test_purge_guard_raises_on_insufficient_gap() -> None:
     config.gru.sequence_length = 48  # gap < seq_len → should raise
     config.gru.objective = "multiclass"  # guard test doesn't need regression target
 
-    # The guard lives inside _run_walk_forward_hybrid which reads parquet.
+    # The guard lives inside train_hybrid_walk_forward which reads parquet.
     # We mock the file I/O and generate_windows to reach the guard.
     mock_df = MagicMock()
     mock_df.__len__ = MagicMock(return_value=100_000)
@@ -81,9 +81,9 @@ def test_purge_guard_raises_on_insufficient_gap() -> None:
         patch("thesis.stage_4_training.walk_forward.hybrid.log_windows"),
         pytest.raises(ValueError, match="Leakage risk"),
     ):
-        from thesis.stage_4_training.walk_forward.hybrid import _run_walk_forward_hybrid
+        from thesis.stage_4_training.walk_forward.hybrid import train_hybrid_walk_forward
 
-        _run_walk_forward_hybrid(config)
+        train_hybrid_walk_forward(config)
 
 
 @pytest.mark.unit
@@ -111,12 +111,12 @@ def test_purge_guard_passes_with_sufficient_gap() -> None:
         ),
         patch("thesis.stage_4_training.walk_forward.hybrid.log_windows"),
     ):
-        from thesis.stage_4_training.walk_forward.hybrid import _run_walk_forward_hybrid
+        from thesis.stage_4_training.walk_forward.hybrid import train_hybrid_walk_forward
 
         # Should NOT raise the purge guard ValueError.
         # It will fail later (no real data), but the guard is what we test.
         try:
-            _run_walk_forward_hybrid(config)
+            train_hybrid_walk_forward(config)
         except ValueError as e:
             # Must NOT be the leakage guard error
             assert "Leakage risk" not in str(e)
@@ -172,13 +172,13 @@ class TestStageNumbering:
         from thesis.stage_4_training.lgbm import training as _lgbm
         from thesis.stage_4_training.walk_forward import (
             hybrid as _wf_hybrid,
-            static as _wf_static,
+            lgbm as _wf_lgbm,
         )
 
         assert pipeline.console is ui_a.console
         assert _lgbm.console is ui_a.console
         assert _wf_hybrid.console is ui_a.console
-        assert _wf_static.console is ui_a.console
+        assert _wf_lgbm.console is ui_a.console
 
     @pytest.mark.unit
     def test_run_pipeline_docstring_stage_numbering(self) -> None:

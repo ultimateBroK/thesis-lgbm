@@ -18,9 +18,6 @@ import polars as pl
 logger = logging.getLogger("thesis.validation")
 
 
-# Data model
-
-
 @dataclass(frozen=True)
 class WalkForwardWindow:
     """Index-based train / test slice for one walk-forward fold.
@@ -40,9 +37,6 @@ class WalkForwardWindow:
     test_end_idx: int
 
 
-# Window generation
-
-
 def generate_windows(
     total_bars: int,
     train_window_bars: int = 26_280,
@@ -55,8 +49,8 @@ def generate_windows(
 ) -> list[WalkForwardWindow]:
     """Create bar-count walk-forward windows across *total_bars* observations.
 
-    Windows slide forward by *step_bars* each fold.  The parameters are counts
-    of observed rows/bars, not guaranteed calendar durations.  Purge trims the
+    Windows slide forward by *step_bars* each fold. The parameters are counts
+    of observed rows/bars, not guaranteed calendar durations. Purge trims the
     tail of each training window and embargo skips the head of each test
     window so that no overlapping information leaks across the boundary.
 
@@ -75,13 +69,10 @@ def generate_windows(
         Ordered list of :class:`WalkForwardWindow` objects.
     """
     windows: list[WalkForwardWindow] = []
-
     test_start = 0
 
     while test_start < total_bars:
         test_end = min(test_start + test_window_bars, total_bars)
-
-        # Raw training region ends right before the test region
         raw_train_end = test_start
         train_start = max(0, raw_train_end - train_window_bars)
 
@@ -117,9 +108,6 @@ def generate_windows(
     return windows
 
 
-# Purge / embargo
-
-
 def apply_purge_embargo(
     train_start: int,
     raw_train_end: int,
@@ -135,7 +123,7 @@ def apply_purge_embargo(
       test period, creating an additional information barrier.
 
     The total gap between the adjusted train end and adjusted test start
-    is ``2 × purge_bars + embargo_bars``.  This is intentional: the
+    is ``2 × purge_bars + embargo_bars``. This is intentional: the
     extra *purge_bars* on the test side accounts for label lookahead
     (the label at the train boundary uses *horizon_bars* of future
     data, so both sides of the boundary need at least that many bars
@@ -265,9 +253,6 @@ def apply_event_time_purge(
     )
 
 
-# DataFrame splitting
-
-
 def split_data(
     df: pl.DataFrame,
     windows: list[WalkForwardWindow],
@@ -310,9 +295,6 @@ def split_data(
 
     logger.info("Split DataFrame into %d bar-based (train, test) pair(s)", len(splits))
     return splits
-
-
-# Logging / diagnostics
 
 
 def log_windows(

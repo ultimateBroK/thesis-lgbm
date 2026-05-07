@@ -1,16 +1,8 @@
 """CFD backtest simulation via backtesting.py.
 
-Public API surface only.  Runners and helpers live in ``runners.py``,
-strategy in ``strategy.py``, persistence/stats in ``persistence.py``.
-
-Barrier alignment requirement: The backtest SL/TP ATR multipliers
-(``BacktestConfig.atr_stop_multiplier``, ``atr_tp_multiplier``) MUST
-match the label barrier multipliers (``LabelsConfig.atr_sl_multiplier``,
-``atr_tp_multiplier``).  Signals are generated from labels whose
-barriers are placed at ±2×ATR; setting backtest SL/TP to any other
-multiple would create a mismatch between the model's training target
-and the execution risk envelope, degrading out-of-sample performance.
-Both config sections should equal 2.0 for the thesis evaluation.
+Keep SL/TP ATR multipliers aligned with the label barriers (same ATR
+multiple), otherwise the model is trained on a different risk envelope
+than the backtest executes.
 """
 
 from __future__ import annotations
@@ -18,7 +10,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from backtesting.lib import FractionalBacktest
 import polars as pl
 
 from thesis.shared.config import Config
@@ -33,19 +24,14 @@ from thesis.stage_5_backtest.persistence import (
     _trades_to_list,
 )
 from thesis.stage_5_backtest.runners import (
+    _create_fractional_backtest,
     _make_commission_fn,
     _prepare_df,
-    _run_bt,
+    _run_fractional_backtest,
 )
-from thesis.stage_5_backtest.strategy import (
-    _DEFAULT_INITIAL_CAPITAL,
-    HybridGRUStrategy,
-)
+from thesis.stage_5_backtest.strategy import _DEFAULT_INITIAL_CAPITAL
 
 logger = logging.getLogger("thesis.backtest")
-
-
-# ── Public API ──
 
 
 def run_backtest(config: Config) -> None:
@@ -57,10 +43,6 @@ def run_backtest(config: Config) -> None:
 
     Writes normalized metrics and trade records as JSON, optional trade-detail
     and equity-curve CSV files, and an optional Bokeh HTML chart.
-
-    Args:
-        config: Application configuration object containing paths and
-            backtest/data settings.
     """
     preds_path = Path(config.paths.predictions)
     if not preds_path.exists():
@@ -68,8 +50,6 @@ def run_backtest(config: Config) -> None:
     with console.status(f"[cyan]Loading predictions[/] {preds_path}"):
         preds_df = pl.read_parquet(preds_path)
 
-    # Walk-forward: predictions are OOF across all windows — need OHLCV from labels
-    # Static: predictions are for the test split — need OHLCV from test split
     test_path = Path(config.paths.test_data)
     is_static = config.validation.method == "static"
 
@@ -108,7 +88,6 @@ def run_backtest(config: Config) -> None:
         preds_source=str(preds_path),
     )
 
-    # ── OOS date-range filter ──
     bc = config.backtest
     if bc.oob_start_date:
         import pandas as pd
@@ -132,7 +111,7 @@ def run_backtest(config: Config) -> None:
 
     logger.info("Confidence threshold: %.2f", config.backtest.confidence_threshold)
     with console.status("[cyan]Running CFD backtest[/]"):
-        stats, bt = _run_bt(pdf, config)
+        stats, bt = _run_fractional_backtest(pdf, config)
 
     metrics = _normalize_stats(stats)
     trades = _trades_to_list(
@@ -168,7 +147,7 @@ def run_backtest_from_data(
 
     Args:
         test_df: Market/test data containing price columns and atr_14.
-        preds_df: Predictions data containing timestamp and pred_label
+        preds_df: Predictions with timestamp and pred_label
             (optional pred_proba_* columns allowed).
         config: Configuration object with backtest, data, and paths sections.
 
@@ -176,7 +155,7 @@ def run_backtest_from_data(
         Normalized metrics dictionary extracted from the backtest results.
     """
     pdf = _prepare_df(test_df, preds_df)
-    stats, _ = _run_bt(pdf, config)
+    stats, _ = _run_fractional_backtest(pdf, config)
     return _normalize_stats(stats)
 
 
@@ -209,35 +188,8 @@ def run_backtest_manual(
     Designed for interactive use in dashboards where parameters can be tuned
     without modifying the config file.
 
-    Args:
-        test_df: Market/test data with OHLCV columns and atr_14.
-        preds_df: Predictions with timestamp and pred_label (optionally
-            pred_proba_* columns).
-        leverage: CFD leverage ratio (default 100).
-        lots_per_trade: Fixed lot size after confidence filtering.
-        min_lots: Minimum lot safety bound.
-        max_lots: Maximum lot safety bound.
-        confidence_threshold: Minimum prediction probability to trade (0 = disabled).
-        spread_ticks: Spread in ticks.
-        slippage_ticks: Slippage in ticks.
-        commission_per_lot: Commission per lot.
-        atr_stop_multiplier: ATR multiplier for stop-loss distance (default 1.0).
-        atr_tp_multiplier: ATR multiplier for take-profit distance
-            (default 2.0, 0 = disabled).
-        horizon_bars: Time-based exit after N bars (default 10).
-        contract_size: Units per lot.
-        tick_size: Price tick size in dollars (default 0.01).
-        initial_capital: Starting capital for the backtest.
-        max_drawdown_cutoff: Circuit breaker drawdown fraction (0.5 = 50%).
-        dd_cooldown_bars: Bars to pause after drawdown breach.
-        max_open_positions: Max simultaneous open positions.
-        daily_loss_limit: Daily equity loss fraction before pause.
-        min_bars_between_trades: Minimum bars between position exit and next
-            entry (0 = disabled, default 6).
-
     Returns:
-        Tuple of (metrics dict, trades list). Metrics contains normalized
-        performance metrics; trades is a list of per-trade records.
+        Tuple of (metrics dict, trades list).
     """
     pdf = _prepare_df(test_df, preds_df)
 
@@ -245,18 +197,12 @@ def run_backtest_manual(
     spread_total = (spread_ticks + slippage_ticks) * tick_size / median_price
 
     commission_fn = _make_commission_fn(commission_per_lot, contract_size)
-    margin = 1.0 / leverage
-
-    bt = FractionalBacktest(
+    bt = _create_fractional_backtest(
         pdf,
-        HybridGRUStrategy,
         cash=initial_capital,
         spread=spread_total,
-        commission=commission_fn,
-        margin=margin,
-        exclusive_orders=True,
-        finalize_trades=True,
-        fractional_unit=1.0,
+        commission_fn=commission_fn,
+        leverage=leverage,
     )
 
     stats = bt.run(

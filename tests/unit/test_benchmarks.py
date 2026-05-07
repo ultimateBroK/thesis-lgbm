@@ -12,8 +12,8 @@ import pytest
 from thesis.shared.config import Config
 from thesis.stage_6_reporting.benchmarks import (
     _annualized_sharpe,
-    _build_equity_curve,
     _compute_random_strategy,
+    _equity_curve_from_bar_returns,
     _load_close_prices_for_benchmark,
     _max_drawdown_pct,
     _model_label,
@@ -28,10 +28,10 @@ from thesis.stage_6_reporting.benchmarks import (
 
 @pytest.mark.unit
 class TestModelLabel:
-    def test_static(self) -> None:
+    def test_lgbm(self) -> None:
         config = Config()
-        config.model.architecture = "static"
-        assert _model_label(config) == "Static LightGBM"
+        config.model.architecture = "lgbm"
+        assert _model_label(config) == "LightGBM"
 
     def test_hybrid(self) -> None:
         config = Config()
@@ -91,7 +91,7 @@ class TestMaxDrawdownPct:
 class TestBuildEquityCurve:
     def test_basic(self) -> None:
         returns = np.array([0.1, -0.05, 0.15])
-        equity = _build_equity_curve(returns, 1000)
+        equity = _equity_curve_from_bar_returns(returns, 1000)
         assert len(equity) == 4
         assert equity[0] == 1000
         assert equity[1] == pytest.approx(1100)
@@ -124,7 +124,7 @@ class TestComputeRandomStrategy:
 
 @pytest.mark.unit
 class TestLoadClosePricesForBenchmark:
-    def test_static_mode_loads_test_data(self, tmp_path) -> None:
+    def test_lgbm_mode_loads_test_data(self, tmp_path) -> None:
         config = Config()
         config.validation.method = "static"
 

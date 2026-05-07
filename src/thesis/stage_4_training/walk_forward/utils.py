@@ -22,23 +22,13 @@ from thesis.shared.config import Config
 
 logger = logging.getLogger("thesis.pipeline")
 
-# --- Constants ---
-
 _CLASS_ORDER = np.array([-1, 0, 1], dtype=np.int32)
 
-# --- Confidence & Signal Quality Thresholds ---
-_HIGH_CONFIDENCE_THRESHOLD = 0.70  # High-confidence prediction floor
-_SHORT_BIAS_RATIO_THRESHOLD = 0.5  # LONG/SHORT ratio warning trigger
-_GRU_SIGNAL_F_SCORE_THRESHOLD = 0.5  # Mean F-score below → no detectable signal
-
-# --- Minimum Sample Thresholds ---
-_ANOVA_MIN_SAMPLES_PER_CLASS = 2  # Minimum samples per class for ANOVA F-statistic
-
-# --- Display / Logging ---
-_SIGNAL_QUALITY_TOP_N = 5  # Top-N for GRU signal quality logging
-
-
-# --- Feature selection ---
+_HIGH_CONFIDENCE_THRESHOLD = 0.70
+_SHORT_BIAS_RATIO_THRESHOLD = 0.5
+_GRU_SIGNAL_F_SCORE_THRESHOLD = 0.5
+_ANOVA_MIN_SAMPLES_PER_CLASS = 2
+_SIGNAL_QUALITY_TOP_N = 5
 
 
 def _select_static_feature_cols(
@@ -46,21 +36,10 @@ def _select_static_feature_cols(
     df: pl.DataFrame,
     candidate_cols: list[str],
 ) -> list[str]:
-    """Return compact, interpretable static features for LightGBM.
-
-    Args:
-        config: Runtime configuration containing the static feature whitelist.
-        df: DataFrame slice used for model training or inference.
-        candidate_cols: Fallback feature columns discovered from the dataset.
-
-    Returns:
-        Ordered feature names present in ``df``. Uses the centralized whitelist
-        first and falls back to discovered candidates for tests or partial data.
-    """
+    """Return static features for LightGBM, preferring the config whitelist."""
     available = [c for c in config.features.static_feature_cols if c in df.columns]
     if available:
         return available
-    # Fallback keeps tests and partial feature sets usable.
     return [c for c in candidate_cols if c in df.columns]
 
 
@@ -107,22 +86,16 @@ def fit_static_feature_pipeline(
             selected_cols = list(preselect.columns[: min(5, preselect.shape[1])])
         return feature_pipeline, selected_cols
     except ValueError as exc:
-        # Some windows can be flat after purge/embargo filtering. Fall back to
-        # scaling-only so the walk-forward run continues without leakage.
-        logger.warning(
-            "Static feature selection fallback activated: %s", str(exc)
-        )
+        # Some windows can be flat after purge/embargo filtering
+        logger.warning("Static feature selection fallback activated: %s", str(exc))
         fallback_cols = list(static_cols)
         fallback_pipeline = Pipeline(steps=[("scaler", RobustScaler())])
         fallback_pipeline.fit(X_train[fallback_cols], y_train)
         return fallback_pipeline, fallback_cols
 
 
-# --- Label counting ---
-
-
 def _counts_dict(values: np.ndarray) -> dict[str, int]:
-    """Return compact class/count diagnostics with string keys for JSON."""
+    """Return class/count dict with string keys for JSON."""
     if values.size == 0:
         return {}
     labels, counts = np.unique(values.astype(np.int32), return_counts=True)
@@ -137,17 +110,11 @@ def _pct_dict(counts: dict[str, int]) -> dict[str, float]:
     return {label: round(count / total * 100.0, 2) for label, count in counts.items()}
 
 
-# --- Date range extraction ---
-
-
 def _window_dates(df: pl.DataFrame) -> dict[str, str]:
     """Return start/end timestamps for a window slice."""
     if df.is_empty() or "timestamp" not in df.columns:
         return {"start": "", "end": ""}
     return {"start": str(df["timestamp"][0]), "end": str(df["timestamp"][-1])}
-
-
-# --- OOF validation ---
 
 
 def _validate_predictions(df: pl.DataFrame, path: Path) -> None:
@@ -194,9 +161,6 @@ def _validate_predictions(df: pl.DataFrame, path: Path) -> None:
         raise ValueError(f"Predictions contain nulls: actual={null_cols}, file={path}")
 
 
-# --- Manifest I/O ---
-
-
 def _write_prediction_manifest(
     df: pl.DataFrame,
     path: Path,
@@ -224,9 +188,6 @@ def _write_prediction_manifest(
     logger.info("Prediction manifest saved: %s", manifest_path)
 
 
-# --- Per-window diagnostics ---
-
-
 def _window_diagnostics(
     window_idx: int,
     train_df: pl.DataFrame,
@@ -234,19 +195,7 @@ def _window_diagnostics(
     y_train: np.ndarray,
     y_test: np.ndarray,
 ) -> dict[str, Any]:
-    """Build per-window label diagnostics for logs and JSON artifacts.
-
-    Args:
-        window_idx: Zero-based window index.
-        train_df: Training split Polars DataFrame.
-        test_df: Test split Polars DataFrame.
-        y_train: Training label array.
-        y_test: Test label array.
-
-    Returns:
-        Dictionary with window index, row counts, date ranges, label
-        counts (raw and percentage) for both train and test splits.
-    """
+    """Build per-window label diagnostics for logs and JSON artifacts."""
     train_counts = _counts_dict(y_train)
     test_counts = _counts_dict(y_test)
     diag: dict[str, Any] = {
@@ -269,26 +218,11 @@ def _window_diagnostics(
     return diag
 
 
-# --- Per-class metrics ---
-
-
 def _compute_per_class_metrics(
     preds: np.ndarray,
     y_test: np.ndarray,
 ) -> dict[str, dict[str, float]]:
-    """Compute per-class precision, recall, F1, and support from predictions.
-
-    Uses ``sklearn.metrics.precision_recall_fscore_support`` with
-    ``zero_division=0`` so missing classes return 0.0 rather than raising.
-
-    Args:
-        preds: Predicted class labels as a NumPy array.
-        y_test: Ground-truth class labels.
-
-    Returns:
-        Mapping ``{class_label_str: {"precision", "recall", "f1", "support"}}``
-        with string keys (``"-1"``, ``"0"``, ``"1"``) for JSON serialization.
-    """
+    """Compute per-class precision, recall, F1, and support from predictions."""
     from sklearn.metrics import precision_recall_fscore_support
 
     classes = np.array([-1, 0, 1], dtype=np.int32)
@@ -306,31 +240,16 @@ def _compute_per_class_metrics(
     }
 
 
-# --- Diagnostic enrichment ---
-
-
 def _add_prediction_diagnostics(
     diag: dict[str, Any],
     preds: np.ndarray,
     y_test: np.ndarray,
     proba: np.ndarray,
 ) -> None:
-    """Attach prediction distribution, confidence, and per-class metrics.
-
-    Mutates ``diag`` by adding prediction counts, accuracy, mean
-    confidence, high-confidence fraction, long/short ratio, and per-class
-    precision / recall / F1.
-
-    Args:
-        diag: Per-window diagnostics dict (mutated in-place).
-        preds: Predicted class labels as a NumPy array.
-        y_test: Ground-truth class labels.
-        proba: Probability matrix (N x 3).
-    """
+    """Attach prediction distribution, confidence, and per-class metrics to *diag*."""
     pred_counts = _counts_dict(preds)
     confidence = np.max(proba, axis=1) if len(proba) else np.array([], dtype=float)
 
-    # Compute LONG/SHORT prediction ratio
     long_count = pred_counts.get("1", 0)
     short_count = pred_counts.get("-1", 0)
     ls_ratio = long_count / short_count if short_count > 0 else float("inf")
@@ -395,27 +314,12 @@ def _add_prediction_diagnostics(
         )
 
 
-# --- GRU signal quality ---
-
-
 def _log_gru_signal_quality(
     hidden_states: np.ndarray,
     labels: np.ndarray,
     config: Config,
 ) -> None:
-    """Log GRU hidden-state signal-to-noise diagnostic using ANOVA F-statistic.
-
-    For each walk-forward window's GRU hidden states, compute the ANOVA
-    F-statistic between each hidden dimension and the label via
-    ``sklearn.feature_selection.f_classif``.  Logs the top-5 and bottom-5
-    dimensions with their F-scores.  If all dimensions have near-zero
-    predictive power, logs a warning that the GRU is contributing noise.
-
-    Args:
-        hidden_states: (n_samples, n_features) GRU hidden-state matrix.
-        labels: (n_samples,) multiclass integer labels.
-        config: Runtime configuration (unused; kept for interface consistency).
-    """
+    """Log GRU hidden-state signal-to-noise diagnostic using ANOVA F-statistic."""
     try:
         from sklearn.feature_selection import f_classif  # type: ignore[import-untyped]
     except ImportError:
@@ -447,13 +351,12 @@ def _log_gru_signal_quality(
         )
         return
 
-    min_samples_per_class = _ANOVA_MIN_SAMPLES_PER_CLASS
     for cls in unique_labels:
-        if np.sum(labels == cls) < min_samples_per_class:
+        if np.sum(labels == cls) < _ANOVA_MIN_SAMPLES_PER_CLASS:
             logger.warning(
                 "GRU signal quality: class %s has < %d samples, skipping",
                 cls,
-                min_samples_per_class,
+                _ANOVA_MIN_SAMPLES_PER_CLASS,
             )
             return
 
@@ -464,13 +367,13 @@ def _log_gru_signal_quality(
         return
 
     n_features = len(f_scores)
-    sorted_indices = np.argsort(f_scores)[::-1]  # descending
+    sorted_indices = np.argsort(f_scores)[::-1]
 
     top_n = min(_SIGNAL_QUALITY_TOP_N, n_features)
     bottom_n = min(_SIGNAL_QUALITY_TOP_N, n_features)
 
     top_indices = sorted_indices[:top_n]
-    bottom_indices = sorted_indices[-bottom_n:][::-1]  # ascending for bottom display
+    bottom_indices = sorted_indices[-bottom_n:][::-1]
 
     mean_f = float(np.mean(f_scores))
 
@@ -490,18 +393,8 @@ def _log_gru_signal_quality(
         )
 
 
-# --- Probability / label helpers ---
-
-
 def _label_suffix(class_label: int) -> str:
-    """Return the canonical probability-column suffix for a class label.
-
-    Args:
-        class_label: An integer from ``{-1, 0, 1}``.
-
-    Returns:
-        String suffix such as ``"minus1"`` or ``"0"``.
-    """
+    """Return canonical probability-column suffix for a class label."""
     return f"minus{abs(class_label)}" if class_label < 0 else str(class_label)
 
 
@@ -510,19 +403,7 @@ def _one_hot_proba_columns(
     *,
     prefix: str = "pred_proba_class_",
 ) -> dict[str, np.ndarray]:
-    """Build one-hot probability columns from predicted class labels.
-
-    Used for regression mode where the model outputs a scalar rather than
-    class probabilities.  Each class column is 1.0 where the prediction
-    matches, 0.0 otherwise.
-
-    Args:
-        preds: Array of predicted class labels (``-1``, ``0``, or ``1``).
-        prefix: Column name prefix (default ``"pred_proba_class_"``).
-
-    Returns:
-        Dictionary mapping canonical column names to 1-D one-hot arrays.
-    """
+    """Build one-hot probability columns from predicted class labels."""
     preds = np.asarray(preds, dtype=np.int32)
     return {
         f"{prefix}{_label_suffix(int(cls))}": (preds == cls).astype(np.float64)
@@ -534,19 +415,7 @@ def _align_probability_matrix(
     proba: np.ndarray,
     class_order: list[int] | np.ndarray,
 ) -> np.ndarray:
-    """Align class probabilities to the canonical ``[-1, 0, 1]`` order.
-
-    Some LightGBM models produce probabilities in a different class order
-    (e.g. ``[0, 1]`` for binary).  This function maps them to the fixed
-    ``[-1, 0, 1]`` column order expected by downstream stages.
-
-    Args:
-        proba: Raw probability matrix ``(N, C)`` from the model.
-        class_order: Model's ``classes_`` attribute (list or array).
-
-    Returns:
-        Probability matrix aligned to ``_CLASS_ORDER`` (``[-1, 0, 1]``).
-    """
+    """Align class probabilities to the canonical ``[-1, 0, 1]`` order."""
     aligned = np.zeros((len(proba), len(_CLASS_ORDER)), dtype=np.float64)
     index_by_class = {int(cls): idx for idx, cls in enumerate(class_order)}
     for target_idx, cls in enumerate(_CLASS_ORDER):
@@ -562,17 +431,7 @@ def _probability_columns(
     *,
     prefix: str = "pred_proba_class_",
 ) -> dict[str, np.ndarray]:
-    """Build canonical probability columns for ``{-1, 0, 1}``.
-
-    Args:
-        proba: Raw probability matrix from the model.
-        class_order: Model's ``classes_`` attribute.
-        prefix: Column name prefix (default ``"pred_proba_class_"``).
-
-    Returns:
-        Dictionary mapping canonical column names to 1-D probability
-        arrays.
-    """
+    """Build canonical probability columns for ``{-1, 0, 1}``."""
     aligned = _align_probability_matrix(proba, class_order)
     return {
         f"{prefix}{_label_suffix(int(cls))}": aligned[:, idx]
@@ -585,18 +444,7 @@ _PROBA_COLS = ("pred_proba_class_minus1", "pred_proba_class_0", "pred_proba_clas
 
 
 def _add_confidence_columns(df: pl.DataFrame) -> pl.DataFrame:
-    """Attach ``max_confidence`` and ``confidence_bin`` to an OOF DataFrame.
-
-    Requires the three canonical probability columns to exist.  If they
-    are absent (e.g. legacy outputs), returns the DataFrame unchanged.
-
-    Args:
-        df: OOF predictions DataFrame with ``pred_proba_class_*`` columns.
-
-    Returns:
-        DataFrame augmented with ``max_confidence`` (float64) and
-        ``confidence_bin`` (string: ``"high"`` / ``"medium"`` / ``"low"``).
-    """
+    """Attach ``max_confidence`` and ``confidence_bin`` to an OOF DataFrame."""
     if not all(c in df.columns for c in _PROBA_COLS):
         return df
     return df.with_columns(

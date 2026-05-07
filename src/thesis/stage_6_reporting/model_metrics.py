@@ -5,10 +5,6 @@ Primary metrics measure directional accuracy for the 3-class
 metrics (MAE, RMSE, R²) measure error in predicted **return magnitude** — they
 are computed on continuous arrays, not classification labels.
 
-For multiclass models that only emit class probabilities, a proxy return is
-derived via ``compute_proxy_return`` (class-weighted scoring).  For true
-regression models, use the raw predicted return directly.
-
 All functions are stateless, side-effect free, and accept only numpy arrays.
 This module is the canonical source for metric computation; reporting and
 dashboard code should import from here rather than re-implementing inline.
@@ -19,7 +15,8 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
-# Individual metric helpers
+_DEFAULT_CLASSES: list[int] = [-1, 0, 1]
+_DEFAULT_CLASS_NAMES: dict[int, str] = {-1: "Short", 0: "Hold", 1: "Long"}
 
 
 def accuracy(y_true: npt.NDArray, y_pred: npt.NDArray) -> float:
@@ -197,10 +194,7 @@ def high_confidence_accuracy(
     y_proba: npt.NDArray,
     threshold: float = 0.6,
 ) -> dict[str, float | int]:
-    """Accuracy when max predicted probability exceeds *threshold*.
-
-    Returns dict with keys: accuracy, count, pct_of_total.
-    """
+    """Accuracy when max predicted probability exceeds *threshold*."""
     max_proba = y_proba.max(axis=1)
     mask = max_proba >= threshold
     count = int(mask.sum())
@@ -209,9 +203,6 @@ def high_confidence_accuracy(
         return {"accuracy": 0.0, "count": 0, "pct_of_total": 0.0}
     acc = float((y_true[mask] == y_pred[mask]).mean())
     return {"accuracy": acc, "count": count, "pct_of_total": count / total * 100}
-
-
-# Regression auxiliary metrics (continuous arrays)
 
 
 def mae(y_true: npt.NDArray, y_pred: npt.NDArray) -> float:
@@ -234,54 +225,26 @@ def r_squared(y_true: npt.NDArray, y_pred: npt.NDArray) -> float:
 def compute_proxy_return(
     y_proba: npt.NDArray, classes: list[int] | None = None
 ) -> npt.NDArray:
-    """Convert class probabilities to a pseudo-continuous predicted return.
+    """Convert class probabilities to pseudo-continuous return.
 
-    Uses class-weighted scoring:  proxy = Σ class_label × P(class).
-    For the default classes [-1, 0, 1] this simplifies to
-    ``P(Long) - P(Short)``, producing values in [-1, 1].
-
-    This is a **proxy** — it does not represent an actual predicted return
-    magnitude.  It is useful as a secondary diagnostic for regression-style
-    evaluation of classification models.
-
-    Args:
-        y_proba: (N, C) probability matrix.
-        classes: label values corresponding to columns (default [-1, 0, 1]).
-
-    Returns:
-        1-D array of shape (N,) with pseudo-return scores.
+    Uses class-weighted scoring: proxy = Σ class_label × P(class).
+    For default [-1, 0, 1] this is P(Long) - P(Short).
     """
     if classes is None:
         classes = _DEFAULT_CLASSES
     labels = np.array(classes, dtype=np.float64)
-    return y_proba @ labels  # (N, C) @ (C,) -> (N,)
+    return y_proba @ labels
 
 
 def compute_regression_auxiliary(
     y_true_returns: npt.NDArray, y_pred_returns: npt.NDArray
 ) -> dict[str, float]:
-    """Return dict with MAE, RMSE, R² for continuous return arrays.
-
-    Args:
-        y_true_returns: 1-D array of actual (ground-truth) returns.
-        y_pred_returns: 1-D array of predicted returns — either raw model
-            output (regression) or proxy from ``compute_proxy_return``.
-
-    Returns:
-        ``{"mae": float, "rmse": float, "r_squared": float}``
-    """
+    """Return dict with MAE, RMSE, R² for continuous return arrays."""
     return {
         "mae": mae(y_true_returns, y_pred_returns),
         "rmse": rmse(y_true_returns, y_pred_returns),
         "r_squared": r_squared(y_true_returns, y_pred_returns),
     }
-
-
-# Main entry point
-
-# Default class ordering and names for the 3-class directional model.
-_DEFAULT_CLASSES: list[int] = [-1, 0, 1]
-_DEFAULT_CLASS_NAMES: dict[int, str] = {-1: "Short", 0: "Hold", 1: "Long"}
 
 
 def compute_all_classification_metrics(
@@ -297,23 +260,6 @@ def compute_all_classification_metrics(
 
     Optionally includes regression auxiliary metrics when continuous return
     arrays are supplied.
-
-    Args:
-        y_true: 1-D array of true labels.
-        y_pred: 1-D array of predicted labels.
-        y_proba: (N, C) probability matrix — optional, needed only for
-            high-confidence accuracy and proxy return computation.
-        classes: ordered list of label values (default ``[-1, 0, 1]``).
-        class_names: mapping from label value to display name.
-        y_true_returns: 1-D array of actual returns.  If provided together
-            with *y_pred_returns* (or *y_proba*), regression auxiliary metrics
-            are appended under key ``"regression_auxiliary"``.
-        y_pred_returns: 1-D array of predicted returns for regression models.
-            For classification models, omit this and pass *y_proba* instead —
-            a proxy return will be computed automatically.
-
-    Returns:
-        Dict with every metric listed in the module docstring.
     """
     if classes is None:
         classes = _DEFAULT_CLASSES
@@ -343,7 +289,6 @@ def compute_all_classification_metrics(
             y_true, y_pred, y_proba
         )
 
-    # Regression auxiliary: compute when ground-truth returns are available.
     if y_true_returns is not None:
         if y_pred_returns is not None:
             pred_returns = y_pred_returns

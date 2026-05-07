@@ -106,8 +106,8 @@ class TestPipelineEmptyWindowsGuard:
 
     @pytest.mark.unit
     def test_empty_windows_raises_runtime_error(self) -> None:
-        """_run_walk_forward_hybrid must raise RuntimeError for empty windows."""
-        from thesis.stage_4_training.walk_forward.hybrid import _run_walk_forward_hybrid
+        """train_hybrid_walk_forward must raise RuntimeError for empty windows."""
+        from thesis.stage_4_training.walk_forward.hybrid import train_hybrid_walk_forward
 
         cfg = Config()
         # Use tiny data that can't produce any windows
@@ -150,13 +150,13 @@ class TestPipelineEmptyWindowsGuard:
                 return_value=tiny_df,
             ):
                 with pytest.raises(RuntimeError, match="No valid walk-forward windows"):
-                    _run_walk_forward_hybrid(cfg)
+                    train_hybrid_walk_forward(cfg)
 
     @pytest.mark.unit
     def test_zero_oof_preds_raises_runtime_error(self) -> None:
         """Guard: all_oof_preds empty triggers RuntimeError."""
         # The guard `if not all_oof_preds or gru_model is None` lives in
-        # ``_save_wf_artifacts`` (delegated from ``_run_walk_forward_hybrid``).
+        # ``_save_wf_artifacts`` (delegated from ``train_hybrid_walk_forward``).
         # Verify the error message exists as a contract somewhere in the module.
         import inspect as _inspect
         import thesis.stage_4_training.walk_forward.artifacts as wf_artifacts_mod

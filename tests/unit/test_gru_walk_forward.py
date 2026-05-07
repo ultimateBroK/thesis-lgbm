@@ -1,4 +1,4 @@
-"""Tests for GRU-only walk-forward artifact persistence."""
+"""Tests for GRU walk-forward artifact persistence."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ import polars as pl
 import pytest
 
 from thesis.shared.config import Config
-from thesis.stage_4_training.walk_forward.gru_only import _save_gru_only_artifacts
+from thesis.stage_4_training.walk_forward.gru import _save_gru_artifacts
 
 
 @pytest.mark.unit
-def test_save_gru_only_artifacts_writes_prediction_outputs(tmp_path) -> None:
-    """GRU-only artifact writer should persist prediction/report files."""
+def test_save_gru_artifacts_writes_prediction_outputs(tmp_path) -> None:
+    """GRU artifact writer should persist prediction/report files."""
     config = Config()
     config.paths.session_dir = str(tmp_path)
     config.paths.predictions = str(
@@ -47,9 +47,9 @@ def test_save_gru_only_artifacts_writes_prediction_outputs(tmp_path) -> None:
     diagnostics = [{"window": 1, "accuracy": 2 / 3}]
 
     with patch(
-        "thesis.stage_4_training.walk_forward.gru_only.save_gru_model"
+        "thesis.stage_4_training.walk_forward.gru.save_gru_model"
     ) as mock_save:
-        _save_gru_only_artifacts(
+        _save_gru_artifacts(
             config,
             [oof],
             last_model=object(),

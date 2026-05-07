@@ -1,7 +1,7 @@
 """Markdown table builders and verdict logic for the thesis report.
 
 Each function appends markdown lines to a caller-provided list ``L``.
-Imported by ``impl.py`` — never imports from ``impl.py``.
+Used by ``generation.py``.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from thesis.stage_6_reporting.benchmarks import (
     _model_label,
     compute_benchmark_comparison,
 )
+from thesis.stage_6_reporting.md_format import _fmt_dollar, _fmt_f2, _fmt_pct, _tbl_row
 from thesis.stage_6_reporting.sections import (
     _EDGE_PF_NEGATIVE,
     _ISSUE_DD_CATASTROPHIC,
@@ -52,27 +53,6 @@ _ZONE_EMOJI = {
     "poor": "🟠",
     "dangerous": "🔴",
 }
-
-# ---------------------------------------------------------------------------
-# Tiny formatting helpers (duplicated to avoid reverse dep on _impl)
-# ---------------------------------------------------------------------------
-
-
-def _tbl_row(*cells: str) -> str:
-    return "| " + " | ".join(cells) + " |"
-
-
-def _fmt_pct(v: float) -> str:
-    return f"{v:.1f}%"
-
-
-def _fmt_f2(v: float) -> str:
-    return f"{v:.2f}"
-
-
-def _fmt_dollar(v: float) -> str:
-    return f"${v:,.0f}"
-
 
 # ---------------------------------------------------------------------------
 # Zone helper

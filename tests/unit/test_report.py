@@ -63,8 +63,8 @@ def test_model_label_matches_architecture() -> None:
     """Report title should reflect the configured architecture."""
     cfg = Config()
 
-    cfg.model.architecture = "static"
-    assert _model_label(cfg) == "Static LightGBM"
+    cfg.model.architecture = "lgbm"
+    assert _model_label(cfg) == "LightGBM"
 
     cfg.model.architecture = "hybrid"
     assert _model_label(cfg) == "Hybrid GRU + LightGBM"
@@ -76,6 +76,7 @@ def test_benchmark_table_discloses_not_cost_equivalent(
 ) -> None:
     """Benchmark section should state benchmark cost assumptions explicitly."""
     cfg = Config()
+    cfg.model.architecture = "hybrid"
     metrics = {"return_pct": 1.0, "sharpe_ratio": 0.5, "max_drawdown_pct": -1.0}
 
     def fake_benchmarks(_test_path, _metrics, _config):

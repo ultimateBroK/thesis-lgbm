@@ -10,7 +10,7 @@ stage-based subpackages under ``src/thesis/``:
 - ``thesis.stage_3_labels`` — triple-barrier labels
 - ``thesis.stage_4_training`` — validation, GRU sub-package, LightGBM, walk-forward sub-package, baselines
 - ``thesis.stage_4_training.gru`` — GRU architecture, training, losses, calibration, inference, persistence
-- ``thesis.stage_4_training.walk_forward`` — walk-forward dispatcher, hybrid/static training, artifacts, utils
+- ``thesis.stage_4_training.walk_forward`` — walk-forward dispatcher, hybrid/GRU/LGBM training, artifacts, utils
 - ``thesis.stage_5_backtest`` — application-demo backtest (strategy, persistence, runners)
 - ``thesis.stage_6_reporting`` — report generation with sections sub-package
 - ``thesis.stage_6_reporting.sections`` — report section renderers (data, oof, assess, backtest)

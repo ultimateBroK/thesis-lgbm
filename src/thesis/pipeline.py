@@ -15,10 +15,10 @@ from typing import Any
 
 from thesis.shared.config import Config
 from thesis.shared.ui import console, stage_header, stage_skip
-from thesis.stage_1_data import prepare_data
+from thesis.stage_1_data import generate_data
 from thesis.stage_2_features import generate_features
 from thesis.stage_3_labels import generate_labels
-from thesis.stage_4_training.walk_forward import _run_static_train, _run_walk_forward
+from thesis.stage_4_training.walk_forward import train_lgbm_fixed, train_walk_forward
 from thesis.stage_5_backtest import run_backtest
 from thesis.stage_6_reporting import generate_report
 
@@ -178,7 +178,7 @@ def run_pipeline(config: Config) -> None:
         config: Loaded application configuration.
     """
     # Stage 1: Prepare OHLCV from raw ticks
-    _run_stage(1, config, "run_data_pipeline", config.paths.ohlcv, prepare_data)
+    _run_stage(1, config, "run_data_pipeline", config.paths.ohlcv, generate_data)
 
     # Stage 2: Features
     _run_stage(
@@ -200,12 +200,12 @@ def run_pipeline(config: Config) -> None:
             config.model.architecture,
         )
         if config.workflow.run_model_training:
-            _run_walk_forward(config)
+            train_walk_forward(config)
         else:
             stage_skip(4, "disabled")
     else:
-        logger.info("Using static train/val/test split")
-        _run_stage(4, config, "run_model_training", None, _run_static_train)
+        logger.info("Using fixed train/val/test split")
+        _run_stage(4, config, "run_model_training", None, train_lgbm_fixed)
 
     # Stage 5: Backtest (Optional Application Demo)
     _run_stage(

@@ -22,6 +22,7 @@ from polars.exceptions import ColumnNotFoundError
 from thesis.shared.config import Config
 from thesis.stage_4_training import baselines as baselines_mod
 from thesis.stage_6_reporting.benchmarks import _model_label
+from thesis.stage_6_reporting.md_format import _tbl_row
 
 logger = logging.getLogger("thesis.report")
 
@@ -32,16 +33,6 @@ logger = logging.getLogger("thesis.report")
 _MIN_WINDOWS_COMPARISON: int = 3
 _SIGNIFICANCE_ALPHA: float = 0.05
 _MAX_PER_WINDOW_DISPLAY: int = 10
-
-# ---------------------------------------------------------------------------
-# Tiny helpers
-# ---------------------------------------------------------------------------
-
-
-def _tbl_row(*cells: str) -> str:
-    """Format cells as a markdown table row."""
-    return "| " + " | ".join(cells) + " |"
-
 
 # ---------------------------------------------------------------------------
 # Date parsing
@@ -146,7 +137,9 @@ def _find_architecture_session(
 
     Args:
         results_dir: Directory containing session subdirectories.
-        target_arch: Architecture to search for (``"static"`` or ``"hybrid"``).
+        target_arch: Architecture to search for (``"static"``, ``"lgbm"``,
+            or ``"hybrid"``). When ``"static"``, sessions with ``"lgbm"`` are
+            also matched.
         exclude_session: Session path to exclude (the current session).
 
     Returns:
@@ -171,7 +164,9 @@ def _find_architecture_session(
             with open(snapshot, "rb") as f:
                 data = tomllib.load(f)
             arch = data.get("model", {}).get("architecture", "")
-            if arch == target_arch:
+            # "lgbm" is the canonical name for the static baseline; accept
+            # legacy "static" in session configs for backward compatibility.
+            if arch == target_arch or (target_arch == "static" and arch == "lgbm"):
                 # Use directory modification time for recency
                 candidates.append((session_dir.stat().st_mtime, session_dir))
         except (OSError, ValueError):
@@ -206,11 +201,11 @@ def _static_vs_hybrid_comparison(L: list[str], config: Config) -> None:
         config: Loaded runtime configuration.
     """
     current_arch = config.model.architecture
-    # Only meaningful for hybrid vs static
-    if current_arch not in ("hybrid", "static"):
+    # Only meaningful for hybrid vs lgbm (or "all" which ends with hybrid)
+    if current_arch not in ("hybrid", "static", "lgbm"):
         return
 
-    target_arch = "static" if current_arch == "hybrid" else "hybrid"
+    target_arch = "lgbm" if current_arch == "hybrid" else "hybrid"
     current_session = config.paths.session_dir
 
     if not current_session:
@@ -422,6 +417,49 @@ def _static_vs_hybrid_comparison(L: list[str], config: Config) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _compute_pred_metrics(preds_path: Path) -> dict[str, Any] | None:
+    """Compute classification metrics from a predictions parquet file."""
+    if not preds_path.exists():
+        return None
+    try:
+        df = pl.read_parquet(preds_path)
+        if "true_label" not in df.columns or "pred_label" not in df.columns:
+            return None
+        y_true = df["true_label"].to_numpy()
+        y_pred = df["pred_label"].to_numpy()
+        accuracy = float((y_true == y_pred).mean())
+
+        # Directional accuracy (exclude hold/0 class)
+        mask = y_true != 0
+        if mask.sum() > 0:
+            dir_acc = float((y_true[mask] == y_pred[mask]).mean())
+        else:
+            dir_acc = accuracy
+
+        # Per-class F1
+        from sklearn.metrics import f1_score
+
+        labels = sorted(set(y_true) | set(y_pred))
+        f1_scores = f1_score(
+            y_true, y_pred, labels=labels, average=None, zero_division=0
+        )
+        per_class: dict[str, dict[str, float]] = {}
+        for label, f1 in zip(labels, f1_scores):
+            name = {-1: "Short", 0: "Hold", 1: "Long"}.get(label, str(label))
+            per_class[name] = {"f1": float(f1)}
+        macro_f1 = float(f1_score(y_true, y_pred, average="macro", zero_division=0))
+
+        return {
+            "accuracy": accuracy,
+            "directional_accuracy": dir_acc,
+            "macro_f1": macro_f1,
+            "per_class": per_class,
+        }
+    except Exception:
+        logger.warning("Failed to compute metrics from %s", preds_path, exc_info=True)
+        return None
+
+
 def _build_model_comparison_rows(
     config: Config, pred_stats: dict | None
 ) -> list[dict[str, Any]]:
@@ -495,25 +533,55 @@ def _build_model_comparison_rows(
                 "Failed to build baseline rows for model comparison", exc_info=True
             )
 
-    # Keep planned model slots visible even when not yet available.
+    # Per-architecture comparison from saved prediction files
+    session_dir = config.paths.session_dir
     existing = {str(r["model"]).lower() for r in rows}
-    for model_name in ("Static LightGBM", "GRU-only", "Hybrid GRU + LightGBM"):
+    arch_specs = [
+        ("LightGBM", "preds_lgbm.parquet"),
+        ("GRU-only", "preds_gru.parquet"),
+        ("Hybrid GRU + LightGBM", "preds_hybrid.parquet"),
+    ]
+    for model_name, preds_file in arch_specs:
         if model_name.lower() in existing:
             continue
-        rows.append(
-            {
-                "model": model_name,
-                "directional_accuracy": None,
-                "accuracy": None,
-                "macro_f1": None,
-                "long_f1": None,
-                "short_f1": None,
-                "mae_return": None,
-                "rmse_return": None,
-                "r2_return": None,
-                "source": "pending_experiment",
-            }
-        )
+        arch_metrics = None
+        if session_dir:
+            arch_path = Path(session_dir) / "predictions" / preds_file
+            arch_metrics = _compute_pred_metrics(arch_path)
+        if arch_metrics:
+            rows.append(
+                {
+                    "model": model_name,
+                    "directional_accuracy": arch_metrics.get("directional_accuracy"),
+                    "accuracy": arch_metrics.get("accuracy"),
+                    "macro_f1": arch_metrics.get("macro_f1"),
+                    "long_f1": arch_metrics.get("per_class", {})
+                    .get("Long", {})
+                    .get("f1"),
+                    "short_f1": arch_metrics.get("per_class", {})
+                    .get("Short", {})
+                    .get("f1"),
+                    "mae_return": None,
+                    "rmse_return": None,
+                    "r2_return": None,
+                    "source": "multi_arch_comparison",
+                }
+            )
+        else:
+            rows.append(
+                {
+                    "model": model_name,
+                    "directional_accuracy": None,
+                    "accuracy": None,
+                    "macro_f1": None,
+                    "long_f1": None,
+                    "short_f1": None,
+                    "mae_return": None,
+                    "rmse_return": None,
+                    "r2_return": None,
+                    "source": "pending_experiment",
+                }
+            )
     return rows
 
 

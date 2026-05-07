@@ -311,7 +311,7 @@ def test_pipeline_static_baseline_smoke(pipeline_config: Config) -> None:
     """Sliding static-only baseline should emit OOF diagnostics and predictions."""
     setup_ohlcv_data(pipeline_config, n_rows=1200)
 
-    pipeline_config.model.architecture = "static"
+    pipeline_config.model.architecture = "lgbm"
     pipeline_config.model.use_optuna = False
     pipeline_config.model.n_estimators = 10
     pipeline_config.model.num_leaves = 8
@@ -370,9 +370,10 @@ def test_new_stage_package_layout() -> None:
     import thesis.stage_5_backtest
     import thesis.stage_6_reporting
 
-    # Stage 1 — data preparation
-    from thesis.stage_1_data import prepare_data
+    # Stage 1 — data generation
+    from thesis.stage_1_data import generate_data, prepare_data
 
+    assert callable(generate_data)
     assert callable(prepare_data)
 
     # Stage 2 — feature engineering

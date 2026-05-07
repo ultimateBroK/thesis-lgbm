@@ -34,8 +34,8 @@ _BARS_PER_YEAR = H1_BARS_PER_YEAR
 def _model_label(config: Config) -> str:
     """Human-readable model family label for reports."""
     architecture = config.model.architecture
-    if architecture == "static":
-        return "Static LightGBM"
+    if architecture in ("static", "lgbm"):
+        return "LightGBM"
     if architecture == "gru":
         return "GRU-only"
     if architecture == "hybrid":
@@ -85,20 +85,11 @@ def _max_drawdown_pct(equity: np.ndarray) -> float:
     return float(abs(dd.min()))
 
 
-def _build_equity_curve(
+def _equity_curve_from_bar_returns(
     returns: np.ndarray,
     initial_capital: float,
 ) -> np.ndarray:
-    """Build equity curve from bar returns and initial capital.
-
-    Args:
-        returns: 1-D array of per-bar returns as fractional changes.
-        initial_capital: Starting equity value.
-
-    Returns:
-        Equity curve array with length ``len(returns) + 1``, where
-        ``equity[0]`` equals ``initial_capital``.
-    """
+    """Cumulative equity from per-bar fractional returns (length n+1)."""
     equity = np.empty(len(returns) + 1)
     equity[0] = initial_capital
     for i, r in enumerate(returns):
@@ -128,7 +119,7 @@ def _compute_random_strategy(
     signals = rng.choice([-1, 1], size=len(returns))
     leveraged = returns * signals * leverage
 
-    equity = _build_equity_curve(leveraged, initial_capital)
+    equity = _equity_curve_from_bar_returns(leveraged, initial_capital)
     ret = (equity[-1] / initial_capital - 1) * 100
     sharpe = _annualized_sharpe(leveraged)
     max_dd = _max_drawdown_pct(equity)
@@ -256,12 +247,12 @@ def compute_benchmark_comparison(
     bar_returns = np.diff(close) / close[:-1]
 
     # 1. Buy & Hold (unleveraged, no costs)
-    bh_equity = _build_equity_curve(bar_returns, initial)
+    bh_equity = _equity_curve_from_bar_returns(bar_returns, initial)
     bh_return = (bh_equity[-1] / initial - 1) * 100
 
     # 2. Always Long (leveraged, no timing/costs)
     al_returns = bar_returns * leverage
-    al_equity = _build_equity_curve(al_returns, initial)
+    al_equity = _equity_curve_from_bar_returns(al_returns, initial)
     al_return = (al_equity[-1] / initial - 1) * 100
 
     # 3. Random Signal

@@ -22,14 +22,10 @@ logger = logging.getLogger("thesis.report")
 # ---------------------------------------------------------------------------
 
 
-def _build_equity_series(
+def _equity_series_from_closed_trades(
     trades: list[dict], initial_capital: float
 ) -> tuple[list, list]:
-    """Build timestamp and cumulative equity series from trades.
-
-    The equity curve is trade-by-trade closed PnL, not mark-to-market, so
-    intra-trade drawdowns are not visible.
-    """
+    """Timestamps and equity from closed-trade PnL (not mark-to-market)."""
     times = [pd.to_datetime(trades[0]["entry_time"])]
     equity = [initial_capital]
     for t in trades:
@@ -55,7 +51,9 @@ def _plot_equity_curve(trades: list[dict], config: Config, out_dir: Path) -> Non
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    times, equity = _build_equity_series(trades, config.backtest.initial_capital)
+    times, equity = _equity_series_from_closed_trades(
+        trades, config.backtest.initial_capital
+    )
     fig, ax = plt.subplots(figsize=(12, 5))
     ax.plot(times, equity, linewidth=1)
     ax.set_title("Equity Curve")

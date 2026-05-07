@@ -69,12 +69,7 @@ def build_label_output_cols(config) -> list[str]:
 
     Superset of feature output columns plus label metadata columns.
     """
-    return sorted(
-        set(
-            build_feature_output_cols(config)
-            + LABEL_META_COLS
-        )
-    )
+    return sorted(set(build_feature_output_cols(config) + LABEL_META_COLS))
 
 
 def build_exclude_cols(config) -> frozenset[str]:

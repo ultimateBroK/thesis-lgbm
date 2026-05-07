@@ -1,8 +1,4 @@
-"""Backtest result persistence — metrics, JSON, CSV, and chart saving.
-
-Contains the curated metric constants, stat normalization, trade
-serialization, and file-writing helpers used by the backtest runners.
-"""
+"""Stage 5 backtest outputs (metrics, trades, charts)."""
 
 from __future__ import annotations
 
@@ -22,9 +18,6 @@ from thesis.stage_5_backtest.strategy import (
 )
 
 logger = logging.getLogger("thesis.backtest")
-
-
-# ── Core metric definitions ──
 
 
 CORE_BACKTEST_METRICS: tuple[tuple[str, str, str], ...] = (
@@ -53,18 +46,10 @@ CORE_BACKTEST_METRIC_KEYS = {
 }
 
 
-# ── Logging ──
-
-
 def _log_core_backtest_metrics(
     metrics: dict[str, Any], initial_capital: float = _DEFAULT_INITIAL_CAPITAL
 ) -> None:
-    """Log only the finance metrics that matter for CLI readability.
-
-    Args:
-        metrics: Normalized backtest statistics from ``_normalize_stats``.
-        initial_capital: Starting capital displayed in the log header.
-    """
+    """Log only the finance metrics that matter for CLI readability."""
     logger.info("=== BACKTEST CORE METRICS ===")
     logger.info("  Initial Balance: %s", f"${initial_capital:,.0f}")
     for key, label, fmt in CORE_BACKTEST_METRICS:
@@ -78,25 +63,11 @@ def _log_core_backtest_metrics(
         logger.info("  Final Equity: %s", f"${equity_final:,.0f}")
 
 
-# ── Statistics ──
-
-
 def _normalize_stats(stats: pd.Series) -> dict:
-    """Convert Backtesting.py statistics into the curated core metric dict.
+    """Convert backtesting.py statistics into the curated core metric dict.
 
-    Only export metrics that are shown in dashboard/CLI.  This prevents
-    downstream artifacts from becoming a noisy dump of technical finance
-    parameters (Sortino, Calmar, SQN, Kelly, recovery factor, avg win/loss,
-    etc.).  Backtesting.py still computes its internal stats while running;
-    this function decides what the thesis workflow keeps and saves.
-
-    Args:
-        stats: Raw ``pd.Series`` from ``backtesting.py`` stats output.
-
-    Returns:
-        Dictionary containing only the keys listed in
-        ``CORE_BACKTEST_METRIC_KEYS``, with keys normalized to
-        snake_case.
+    Only export metrics shown in dashboard/CLI to prevent downstream artifacts
+    from becoming a noisy dump of technical finance parameters.
     """
     raw = stats.to_dict()
     out: dict = {}
@@ -123,9 +94,6 @@ def _normalize_stats(stats: pd.Series) -> dict:
     return out
 
 
-# ── Trade serialization ──
-
-
 def _trades_to_list(
     trades_df: pd.DataFrame,
     commission_per_lot: float = _DEFAULT_COMMISSION_PER_LOT,
@@ -133,20 +101,8 @@ def _trades_to_list(
 ) -> list[dict]:
     """Convert a backtesting.py trades DataFrame to a JSON-serializable list.
 
-    Each record contains entry/exit timestamps, direction ("long" or "short"),
-    entry/exit prices, lot size, PnL, return percentage, commission, and
-    duration.
-
-    Args:
-        trades_df: Raw trades DataFrame from backtesting.py stats.
-        commission_per_lot: Commission charged per lot to compute per-trade
-            commission.
-        contract_size: Units per lot used to convert raw Size into lot counts.
-
-    Returns:
-        List of trade dictionaries with keys: entry_time, exit_time,
-        direction, entry_price, exit_price, lot_size, pnl, return_pct,
-        commission, duration.
+    Each record contains entry/exit timestamps, direction, prices, lot size,
+    PnL, return percentage, commission, and duration.
     """
     if trades_df.empty:
         return []
@@ -173,21 +129,12 @@ def _trades_to_list(
     return result
 
 
-# ── File writers ──
-
-
 def _save_json_results(
     metrics: dict,
     trades: list[dict],
     out_path: Path,
 ) -> None:
-    """Save backtest results as JSON.
-
-    Args:
-        metrics: Normalized metrics from _normalize_stats.
-        trades: List of trade records from _trades_to_list.
-        out_path: Destination path for JSON file.
-    """
+    """Save backtest results (metrics + trades) as JSON."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
         json.dump({"metrics": metrics, "trades": trades}, f, indent=2, default=str)
@@ -195,12 +142,7 @@ def _save_json_results(
 
 
 def _save_trade_details_csv(trades: list[dict], out_dir: Path) -> None:
-    """Save per-trade records as CSV.
-
-    Args:
-        trades: List of trade dictionaries.
-        out_dir: Parent directory for output CSV.
-    """
+    """Save per-trade records as CSV."""
     if not trades:
         return
     csv_path = out_dir / "trades_detail.csv"
@@ -219,16 +161,8 @@ def _save_equity_curve_csv(
 ) -> None:
     """Save equity curve as CSV with running peak and drawdown.
 
-    Each row represents a closed trade with the running equity, peak equity,
-    and drawdown percentage.
-
-    The equity curve is trade-by-trade closed PnL, not mark-to-market, so
-    intra-trade drawdowns are not visible.
-
-    Args:
-        trades: List of trade dictionaries with pnl and exit_time.
-        out_dir: Parent directory for output CSV.
-        initial_capital: Starting capital for equity calculation.
+    Equity curve is trade-by-trade closed PnL, not mark-to-market,
+    so intra-trade drawdowns are not visible.
     """
     if not trades:
         return
@@ -259,13 +193,7 @@ def _save_bokeh_chart(
     stats: pd.Series,
     session_dir: Path | None,
 ) -> None:
-    """Save Bokeh HTML chart for the backtest.
-
-    Args:
-        bt: Backtest instance with .plot() method.
-        stats: Backtest statistics Series (checked for trade count).
-        session_dir: Session directory for chart output; if None, skips chart.
-    """
+    """Save Bokeh HTML chart for the backtest."""
     if not session_dir:
         return
     if stats["_trades"].empty:

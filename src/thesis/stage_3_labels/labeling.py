@@ -1,10 +1,7 @@
-"""Asymmetric upper/lower barrier direction labeling.
+"""Stage 3: asymmetric direction-barrier labeling.
 
-Uses separate ``atr_tp_multiplier`` and ``atr_sl_multiplier`` for take-profit
-and stop-loss barriers. No DST detection, no session definitions, no
-dead-hour filtering.
-
-Labels are encoded as ``+1`` for long, ``0`` for hold, and ``-1`` for short.
+Encodes labels as ``+1`` (long), ``0`` (hold), ``-1`` (short), with ``-2`` as
+censored (insufficient forward horizon).
 """
 
 from __future__ import annotations
@@ -31,79 +28,21 @@ from thesis.shared.ui import console
 logger = logging.getLogger("thesis.labels")
 
 
-# Public API
-
-
 def generate_labels(config: Config) -> None:
-    """Generate direction-barrier labels and write them to parquet.
-
-    Loads engineered features and OHLCV bars, joins them by timestamp, computes
-    asymmetric upper/lower barrier labels, appends label metadata, logs the
-    class distribution, and writes the configured labels output.
-
-    Args:
-        config: Application configuration containing feature, OHLCV, label,
-            ATR, and barrier settings.
-
-    Raises:
-        FileNotFoundError: If the features or OHLCV input paths do not exist.
-        ValueError: If the required ATR column is missing from the features.
-    """
-    features_path = Path(config.paths.features)
-    ohlcv_path = Path(config.paths.ohlcv)
-    _validate_paths(features_path, ohlcv_path)
-
-    logger.info("Loading features: %s", features_path)
-    with console.status(f"[cyan]Loading features[/] {features_path}"):
-        df_feat = pl.read_parquet(features_path)
-
-    _validate_unique_timestamps(df_feat, "features")
-    FeaturesSchema.validate(df_feat, config=config)
-
-    ohlcv_cols = {"open", "high", "low", "close"}
-    has_ohlcv = ohlcv_cols.issubset(set(df_feat.columns))
-
-    if has_ohlcv:
-        logger.info("Features already contain OHLC columns — skipping OHLCV join")
-        df = df_feat
-    else:
-        logger.info("Loading OHLCV for missing OHLC columns: %s", ohlcv_path)
-        with console.status(f"[cyan]Loading OHLCV[/] {ohlcv_path}"):
-            df_ohlcv = pl.read_parquet(ohlcv_path).select(
-                ["timestamp", "open", "high", "low", "close"]
-            )
-        _validate_unique_timestamps(df_ohlcv, "OHLCV")
-        df = df_feat.join(df_ohlcv, on="timestamp", how="inner")
-        # Drop any join artifacts (*_right columns from duplicate column names)
-        right_cols = [c for c in df.columns if c.endswith("_right")]
-        if right_cols:
-            logger.warning(
-                "Dropping %d join-artifact columns: %s",
-                len(right_cols),
-                right_cols,
-            )
-            df = df.drop(right_cols)
-        _validate_unique_timestamps(df, "joined feature/OHLCV")
-
+    """Compute direction-barrier labels and write parquet output."""
+    df, atr_col = _load_inputs(config)
     logger.info("Rows for labeling: %d", len(df))
-
-    atr_col = f"atr_{config.features.atr_period}"
-    if atr_col not in df.columns:
-        raise ValueError(f"{atr_col} not in features. Run feature engineering first.")
-
     _log_atr_stats(df, atr_col, config.labels.min_atr)
 
-    labels_arr, upper_arr, lower_arr, touched_bars_arr, ambiguous_count = (
-        _compute_labels(
-            close=df["close"].to_numpy(),
-            high=df["high"].to_numpy(),
-            low=df["low"].to_numpy(),
-            atr=df[atr_col].to_numpy(),
-            tp_mult=config.labels.atr_tp_multiplier,
-            sl_mult=config.labels.atr_sl_multiplier,
-            horizon=config.labels.horizon_bars,
-            min_atr=config.labels.min_atr,
-        )
+    labels, upper, lower, touched_bars, ambiguous_count = _compute_labels(
+        close=df["close"].to_numpy(),
+        high=df["high"].to_numpy(),
+        low=df["low"].to_numpy(),
+        atr=df[atr_col].to_numpy(),
+        tp_mult=config.labels.atr_tp_multiplier,
+        sl_mult=config.labels.atr_sl_multiplier,
+        horizon=config.labels.horizon_bars,
+        min_atr=config.labels.min_atr,
     )
 
     logger.info(
@@ -119,17 +58,11 @@ def generate_labels(config: Config) -> None:
         ambiguous_count,
     )
 
-    event_end_arr = compute_event_end(touched_bars_arr, config.labels.horizon_bars)
-    sample_weight_arr = compute_average_uniqueness(event_end_arr)
+    event_end = compute_event_end(touched_bars, config.labels.horizon_bars)
+    sample_weight = compute_average_uniqueness(event_end)
 
     df = _merge_label_columns(
-        df,
-        labels_arr,
-        upper_arr,
-        lower_arr,
-        touched_bars_arr,
-        event_end_arr,
-        sample_weight_arr,
+        df, labels, upper, lower, touched_bars, event_end, sample_weight
     )
     _log_label_profitability(df, config)
     df = _filter_censored(df)
@@ -139,16 +72,12 @@ def generate_labels(config: Config) -> None:
     out_path = Path(config.paths.labels)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Guard: no join artifacts in output
     right_cols = [c for c in df.columns if c.endswith("_right")]
     assert not right_cols, f"labels.parquet contains join artifacts: {right_cols}"
 
     LabelsSchema.validate(df, config=config)
     df.write_parquet(out_path)
     logger.info("Labels saved: %s (%d rows)", out_path, len(df))
-
-
-# Core labeling logic
 
 
 @njit
@@ -162,20 +91,7 @@ def _compute_labels(
     horizon: int,
     min_atr: float,
 ) -> tuple:
-    """Compute asymmetric direction-barrier outcomes for each bar.
-
-    For each index i this sets upper = close[i] + tp_mult * max(atr[i], min_atr)
-    and lower = close[i] - sl_mult * max(atr[i], min_atr), then inspects bars
-    i+1 .. i+horizon (bounded by series end) to determine which barrier is
-    touched first. If neither barrier is touched within the horizon the label
-    remains 0. If both barriers are touched on the same OHLC bar, the sample
-    is treated as ambiguous and labeled Hold (0). Rows within `horizon` bars
-    of the series end are marked -2 (censored) and are dropped from training.
-
-    Returns:
-        Tuple of labels, upper barriers, lower barriers, touched-bar offsets,
-        and the same-bar both-hit count.
-    """
+    """Compute direction-barrier outcomes and touched offsets."""
     n = len(close)
     labels = np.zeros(n, dtype=np.int32)
     upper_barriers = np.zeros(n, dtype=np.float64)
@@ -190,28 +106,25 @@ def _compute_labels(
         upper_barriers[i] = upper
         lower_barriers[i] = lower
 
-        # Right-censored: not enough forward bars to evaluate horizon
         if i + horizon >= n:
             labels[i] = CENSORED_LABEL
             touched_bars[i] = CENSORED_LABEL
             continue
 
-        label = 0  # Hold by default
+        label = 0
         for j in range(i + 1, min(i + 1 + horizon, n)):
             upper_hit = high[j] >= upper
             lower_hit = low[j] <= lower
             if upper_hit and lower_hit:
-                # OHLC bars do not reveal intra-bar path; keep ambiguous
-                # samples neutral.
                 ambiguous_count += 1
                 touched_bars[i] = j - i
                 break
             if upper_hit:
-                label = 1  # Long
+                label = 1
                 touched_bars[i] = j - i
                 break
             if lower_hit:
-                label = -1  # Short
+                label = -1
                 touched_bars[i] = j - i
                 break
         labels[i] = label
@@ -221,19 +134,7 @@ def _compute_labels(
 
 @njit
 def compute_event_end(touched_bars: np.ndarray, horizon: int) -> np.ndarray:
-    """Convert touched-bar offsets to absolute event-end indices.
-
-    Hold/ambiguous labels with ``touched_bar == -1`` are active for the full
-    horizon. Censored rows are assigned the full horizon too; they are dropped
-    before training, but keeping a finite value makes diagnostics stable.
-
-    Args:
-        touched_bars: Array of touched-bar offsets (-1 for hold/censored).
-        horizon: Maximum forward horizon in bars.
-
-    Returns:
-        Array of absolute event-end indices (0-indexed).
-    """
+    """Convert touched offsets into absolute end indices."""
     n = len(touched_bars)
     event_end = np.empty(n, dtype=np.int32)
     for i in range(n):
@@ -246,19 +147,7 @@ def compute_event_end(touched_bars: np.ndarray, horizon: int) -> np.ndarray:
 
 @njit
 def compute_average_uniqueness(event_end: np.ndarray) -> np.ndarray:
-    """Compute López de Prado average-uniqueness sample weights.
-
-    For sample ``i`` active over ``[i, event_end[i]]``, uniqueness is the mean
-    of ``1 / concurrency[t]`` across its active bars. Highly overlapping labels
-    receive lower weights. Output is clipped to a small positive floor and
-    normalized to mean 1 so optimizers keep their usual loss scale.
-
-    Args:
-        event_end: Array of absolute event-end indices for each bar.
-
-    Returns:
-        Array of sample weights normalized to mean 1.
-    """
+    """Compute López de Prado average-uniqueness sample weights."""
     n = len(event_end)
     diff = np.zeros(n + 1, dtype=np.float64)
     for i in range(n):
@@ -302,19 +191,8 @@ def compute_average_uniqueness(event_end: np.ndarray) -> np.ndarray:
     return weights
 
 
-# Helpers
-
-
 def _validate_paths(features_path: Path, ohlcv_path: Path) -> None:
-    """Validate that required input paths exist.
-
-    Args:
-        features_path: Path to the features parquet file.
-        ohlcv_path: Path to the OHLCV parquet file.
-
-    Raises:
-        FileNotFoundError: If either path does not exist.
-    """
+    """Raise if features or OHLCV path is missing."""
     if not features_path.exists():
         raise FileNotFoundError(f"Features not found: {features_path}")
     if not ohlcv_path.exists():
@@ -322,15 +200,7 @@ def _validate_paths(features_path: Path, ohlcv_path: Path) -> None:
 
 
 def _validate_unique_timestamps(df: pl.DataFrame, name: str) -> None:
-    """Fail fast if a stage boundary contains duplicate timestamps.
-
-    Args:
-        df: DataFrame to validate.
-        name: Human-readable name for the data source (used in error message).
-
-    Raises:
-        ValueError: If duplicate timestamps are found.
-    """
+    """Raise ValueError on duplicate `timestamp` values."""
     if "timestamp" not in df.columns:
         return
     duplicate_count = len(df) - df["timestamp"].n_unique()
@@ -339,6 +209,44 @@ def _validate_unique_timestamps(df: pl.DataFrame, name: str) -> None:
             f"{name} data contains {duplicate_count} duplicate timestamps; "
             "deduplicate before label generation."
         )
+
+
+def _load_inputs(config: Config) -> tuple[pl.DataFrame, str]:
+    """Load and join features with OHLCV; return (df, atr_col)."""
+    features_path = Path(config.paths.features)
+    ohlcv_path = Path(config.paths.ohlcv)
+    _validate_paths(features_path, ohlcv_path)
+
+    logger.info("Loading features: %s", features_path)
+    with console.status(f"[cyan]Loading features[/] {features_path}"):
+        df_features = pl.read_parquet(features_path)
+    _validate_unique_timestamps(df_features, "features")
+    FeaturesSchema.validate(df_features, config=config)
+
+    ohlc_required = {"open", "high", "low", "close"}
+    if ohlc_required.issubset(set(df_features.columns)):
+        logger.info("Features already contain OHLC columns — skipping OHLCV join")
+        return df_features, f"atr_{config.features.atr_period}"
+
+    logger.info("Loading OHLCV for missing OHLC columns: %s", ohlcv_path)
+    with console.status(f"[cyan]Loading OHLCV[/] {ohlcv_path}"):
+        df_ohlcv = pl.read_parquet(ohlcv_path).select(
+            ["timestamp", "open", "high", "low", "close"]
+        )
+    _validate_unique_timestamps(df_ohlcv, "OHLCV")
+    df = df_features.join(df_ohlcv, on="timestamp", how="inner")
+    right_cols = [c for c in df.columns if c.endswith("_right")]
+    if right_cols:
+        logger.warning(
+            "Dropping %d join-artifact columns: %s", len(right_cols), right_cols
+        )
+        df = df.drop(right_cols)
+    _validate_unique_timestamps(df, "joined feature/OHLCV")
+
+    atr_col = f"atr_{config.features.atr_period}"
+    if atr_col not in df.columns:
+        raise ValueError(f"{atr_col} not in features. Run feature engineering first.")
+    return df, atr_col
 
 
 def _merge_label_columns(
@@ -350,89 +258,47 @@ def _merge_label_columns(
     event_end_arr: np.ndarray,
     sample_weight_arr: np.ndarray,
 ) -> pl.DataFrame:
-    """Build and join label columns into the main dataframe.
-
-    Args:
-        df: Main DataFrame to join labels into.
-        labels_arr: Label values (-1, 0, 1, or censored).
-        upper_arr: Upper barrier prices.
-        lower_arr: Lower barrier prices.
-        touched_bars_arr: Touched-bar offsets.
-        event_end_arr: Event-end indices.
-        sample_weight_arr: Sample weights.
-
-    Returns:
-        DataFrame with label columns joined on ``timestamp``.
-    """
-    ts_dtype = df["timestamp"].dtype
-    labels_df = pl.DataFrame(
-        {
-            "timestamp": pl.Series(df["timestamp"].to_list(), dtype=ts_dtype),
-            "label": labels_arr,
-            "upper_barrier": upper_arr,
-            "lower_barrier": lower_arr,
-            "touched_bar": touched_bars_arr,
-            "event_end": event_end_arr,
-            "sample_weight": sample_weight_arr,
-        }
+    """Attach label-related arrays as columns to `df`."""
+    return df.with_columns(
+        [
+            pl.Series("label", labels_arr),
+            pl.Series("upper_barrier", upper_arr),
+            pl.Series("lower_barrier", lower_arr),
+            pl.Series("touched_bar", touched_bars_arr),
+            pl.Series("event_end", event_end_arr),
+            pl.Series("sample_weight", sample_weight_arr),
+        ]
     )
-    return df.join(labels_df, on="timestamp", how="left")
 
 
 def _log_atr_stats(df: pl.DataFrame, atr_col: str, min_atr: float) -> None:
-    """Log ATR distribution and how often the configured floor applies.
-
-    Args:
-        df: DataFrame containing the ATR column.
-        atr_col: Name of the ATR column.
-        min_atr: Configured minimum ATR value.
-    """
-    stats = df.select(
-        [
-            pl.col(atr_col).min().alias("min"),
-            pl.col(atr_col).median().alias("median"),
-            pl.col(atr_col).quantile(ATR_LOW_QUANTILE).alias("p5"),
-            pl.col(atr_col).quantile(ATR_HIGH_QUANTILE).alias("p95"),
-            (pl.col(atr_col) < min_atr).mean().alias("floor_rate"),
-        ]
+    """Log a compact ATR distribution snapshot."""
+    s = df.select(
+        pl.col(atr_col).min().alias("min"),
+        pl.col(atr_col).median().alias("median"),
+        pl.col(atr_col).quantile(ATR_LOW_QUANTILE).alias("p5"),
+        pl.col(atr_col).quantile(ATR_HIGH_QUANTILE).alias("p95"),
+        (pl.col(atr_col) < min_atr).mean().alias("floor_rate"),
     ).row(0, named=True)
     logger.info(
-        "ATR stats (%s): min=%.6f, median=%.6f, p5=%.6f, p95=%.6f, "
-        "below_min_atr=%.2f%%",
+        "ATR stats (%s): min=%.6f, median=%.6f, p5=%.6f,"
+        " p95=%.6f, below_min_atr=%.2f%%",
         atr_col,
-        stats["min"] or 0.0,
-        stats["median"] or 0.0,
-        stats["p5"] or 0.0,
-        stats["p95"] or 0.0,
-        (stats["floor_rate"] or 0.0) * 100,
+        s["min"] or 0.0,
+        s["median"] or 0.0,
+        s["p5"] or 0.0,
+        s["p95"] or 0.0,
+        (s["floor_rate"] or 0.0) * 100.0,
     )
 
 
 def _filter_censored(df: pl.DataFrame) -> pl.DataFrame:
-    """Remove censored rows where forward horizon is insufficient.
-
-    Censored rows (``label == -2``) lack enough future data to evaluate the
-    barrier outcome.  Keeping them as Hold would inject label noise, so they
-    are dropped entirely.
-
-    When a ``regression_target`` column is present (regression objective),
-    rows with NaN regression target are also dropped.  This provides
-    defense-in-depth against zero-target tail leakage when stage-4
-    regression-target computation marks rows as censored.
-
-    Args:
-        df: DataFrame with a ``label`` column.
-
-    Returns:
-        DataFrame with censored rows removed.
-    """
+    """Drop censored rows and regression NaNs."""
     n_before = len(df)
-    # Label-based censoring
     n_censored = int((df["label"] == CENSORED_LABEL).sum())
     if n_censored > 0:
         df = df.filter(pl.col("label") != CENSORED_LABEL)
 
-    # NaN regression-target censoring (defense-in-depth for regression mode)
     n_nan = 0
     if "regression_target" in df.columns:
         n_nan = int(df["regression_target"].is_nan().sum())
@@ -442,8 +308,8 @@ def _filter_censored(df: pl.DataFrame) -> pl.DataFrame:
     n_dropped = n_before - len(df)
     if n_dropped > 0:
         logger.info(
-            "Dropped %d censored rows (label=%d, regression_nan=%d) — "
-            "insufficient forward horizon",
+            "Dropped %d censored rows (label=%d, regression_nan=%d)"
+            " — insufficient forward horizon",
             n_dropped,
             n_censored,
             n_nan,
@@ -452,155 +318,95 @@ def _filter_censored(df: pl.DataFrame) -> pl.DataFrame:
 
 
 def _log_distribution(df: pl.DataFrame) -> None:
-    """Log counts and percentages for each value in the dataframe's `label` column.
-
-    If the ``label`` column is not present the function returns without
-    logging.  Each logged line reports the label value, its absolute count,
-    and its percentage of the dataframe rows.
-
-    Args:
-        df (pl.DataFrame): DataFrame expected to contain a `label` column.
-    """
+    """Log counts and percentages for the `label` column."""
     if "label" not in df.columns:
         return
-    counts = df["label"].value_counts().sort("label")
     total = len(df)
-    for row in counts.iter_rows():
-        label, count = row
+    for label, count in df["label"].value_counts().sort("label").iter_rows():
         logger.info("  Class %s: %d (%.1f%%)", label, count, count / total * 100)
 
 
 def _log_weight_stats(df: pl.DataFrame) -> None:
-    """Log average-uniqueness sample-weight diagnostics.
-
-    Args:
-        df: DataFrame with a ``sample_weight`` column.
-    """
+    """Log sample-weight diagnostics."""
     if "sample_weight" not in df.columns:
         return
-    stats = df.select(
-        [
-            pl.col("sample_weight").min().alias("min"),
-            pl.col("sample_weight").median().alias("median"),
-            pl.col("sample_weight").max().alias("max"),
-            pl.col("sample_weight").mean().alias("mean"),
-        ]
+    s = df.select(
+        pl.col("sample_weight").min().alias("min"),
+        pl.col("sample_weight").median().alias("median"),
+        pl.col("sample_weight").max().alias("max"),
+        pl.col("sample_weight").mean().alias("mean"),
     ).row(0, named=True)
     logger.info(
         "Average-uniqueness sample weights: min=%.4f median=%.4f max=%.4f mean=%.4f",
-        stats["min"] or 0.0,
-        stats["median"] or 0.0,
-        stats["max"] or 0.0,
-        stats["mean"] or 0.0,
+        s["min"] or 0.0,
+        s["median"] or 0.0,
+        s["max"] or 0.0,
+        s["mean"] or 0.0,
     )
 
 
 def _log_label_profitability(df: pl.DataFrame, config: Config) -> None:
-    """Log label profitability diagnostics after trading costs.
-
-    Computes the percentage of Long labels (+1) and Short labels (-1) that
-    would have been profitable after accounting for spread, slippage, and
-    commission. The net return per bar is:
-
-        net_return = (close[i+horizon] - close[i+1]) / close[i] * leverage - costs
-
-    where ``costs`` expressed as a fraction of the notional value using
-    ``BacktestConfig`` cost parameters and ``DataConfig.tick_size``.
-
-    Long labels are profitable when ``net_return > 0``; Short labels are
-    profitable when ``net_return < 0`` (price moved opposite of the
-    long-oriented formula). If both classes fall below 60 % the labels are
-    flagged as economically questionable.
-
-    Args:
-        df: Full joined feature + OHLCV + label DataFrame (pre-censoring).
-        config: Application configuration.
-    """
-    required = {"close", "label", "timestamp"}
-    if not required.issubset(df.columns):
+    """Log label profitability diagnostics after trading costs."""
+    if not {"close", "label", "timestamp"}.issubset(df.columns):
         return
 
-    horizon = config.labels.horizon_bars
-    leverage = config.backtest.leverage
-    tick_size = config.data.tick_size
-    spread_ticks = config.backtest.spread_ticks
-    slippage_ticks = config.backtest.slippage_ticks
-    commission_per_lot = config.backtest.commission_per_lot
-    contract_size = config.data.contract_size
+    h = config.labels.horizon_bars
+    cost = (
+        (config.backtest.spread_ticks + config.backtest.slippage_ticks)
+        * config.data.tick_size
+        + config.backtest.commission_per_lot
+        * ROUNDTRIP_MULT
+        / config.data.contract_size
+    )
+    lev = config.backtest.leverage
 
-    # Sort by timestamp so positional shifts are strictly chronological.
-    df = df.sort("timestamp")
-
-    # Fixed-cost numerator expressed in price terms so cost_frac = num / close[i]
-    # is a fraction of notional value that can be subtracted from the leveraged
-    # return expression.
-    cost_numerator = (spread_ticks + slippage_ticks) * tick_size + (
-        commission_per_lot * ROUNDTRIP_MULT
-    ) / contract_size
-
-    # net_return = (close[i+horizon] - close[i+1]) / close[i] * leverage - costs
-    net_return_expr = (
-        pl.col("close").shift(-horizon) - pl.col("close").shift(-1)
-    ) / pl.col("close") * pl.lit(leverage) - (pl.lit(cost_numerator) / pl.col("close"))
-
-    result = df.with_columns(net_return_expr.alias("_net_return"))
-
-    # Exclude censored rows (-2) and rows where the shift produced a null
-    # (last ``horizon`` rows naturally have no valid close[i+horizon]).
-    result = result.filter(
-        (pl.col("label") != CENSORED_LABEL) & pl.col("_net_return").is_not_null()
+    result = (
+        df.sort("timestamp")
+        .with_columns(
+            (
+                (pl.col("close").shift(-h) - pl.col("close").shift(-1))
+                / pl.col("close")
+                * lev
+                - cost / pl.col("close")
+            ).alias("_net_return")
+        )
+        .filter(
+            (pl.col("label") != CENSORED_LABEL) & pl.col("_net_return").is_not_null()
+        )
     )
 
     if result.is_empty():
         logger.warning("Label profitability: no valid samples after filtering.")
         return
 
-    long_pct = 0.0
-    short_pct = 0.0
-
-    for label_val, label_name, condition in [
+    pct: dict[int, float] = {1: 0.0, -1: 0.0}
+    for label_val, label_name, profit_expr in (
         (1, "Long", pl.col("_net_return") > 0),
-        (-1, "Short (net negative)", pl.col("_net_return") < 0),
-    ]:
+        (-1, "Short", pl.col("_net_return") < 0),
+    ):
         class_df = result.filter(pl.col("label") == label_val)
-        total = len(class_df)
+        total = class_df.height
         if total == 0:
             logger.info("  Class %d (%s): no samples", label_val, label_name)
             continue
-        profitable = class_df.filter(condition).height
-        pct = profitable / total * 100.0
+        profitable = class_df.filter(profit_expr).height
+        pct[label_val] = profitable / total * 100.0
         logger.info(
             "%% of %s labels that are profitable after costs: %.1f%% (%d/%d)",
-            label_name.split(" (")[0],
-            pct,
+            label_name,
+            pct[label_val],
             profitable,
             total,
         )
-        if label_val == 1:
-            long_pct = pct
-        elif label_val == -1:
-            short_pct = pct
 
-    # Hold class for completeness
-    hold_df = result.filter(pl.col("label") == 0)
-    hold_total = len(hold_df)
-    if hold_total > 0:
-        hold_up = hold_df.filter(pl.col("_net_return") > 0).height
-        hold_down = hold_df.filter(pl.col("_net_return") < 0).height
-        logger.info(
-            "  Class 0 (Hold): %d samples (net pos: %d, net neg: %d)",
-            hold_total,
-            hold_up,
-            hold_down,
-        )
+    hold_total = result.filter(pl.col("label") == 0).height
+    if hold_total:
+        logger.info("  Class 0 (Hold): %d samples", hold_total)
 
-    if (
-        long_pct < LABEL_PROFITABILITY_WARN_PCT
-        and short_pct < LABEL_PROFITABILITY_WARN_PCT
-    ):
+    if pct[1] < LABEL_PROFITABILITY_WARN_PCT and pct[-1] < LABEL_PROFITABILITY_WARN_PCT:
         logger.warning(
             "LABEL PROFITABILITY LOW: Long %.1f%%, Short %.1f%% -- "
             "labels may not be economically useful after trading costs",
-            long_pct,
-            short_pct,
+            pct[1],
+            pct[-1],
         )

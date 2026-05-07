@@ -50,27 +50,12 @@ from thesis.stage_6_reporting.tables import (
 
 logger = logging.getLogger("thesis.report")
 
-# Module-level constants — remaining in _impl
-
-# Confidence & baseline
 _HIGH_CONFIDENCE_THRESHOLD: float = 0.70
 _DIRECTIONAL_BASELINE: float = 0.5
 
-# Stats helpers
-
 
 def _load_prediction_stats(preds_path: Path) -> dict | None:
-    """Compute prediction quality statistics from a predictions parquet file.
-
-    Args:
-        preds_path: Path to predictions parquet containing ``true_label``,
-            ``pred_label``, and optional class-probability columns.
-
-    Returns:
-        A dictionary with overall accuracy, directional accuracy, baselines,
-        per-class metrics, confusion matrix, and optional high-confidence
-        stats; returns ``None`` if the file is unavailable or unreadable.
-    """
+    """Compute prediction quality statistics from a predictions parquet file."""
     if not preds_path.exists():
         return None
     try:
@@ -90,9 +75,7 @@ def _load_prediction_stats(preds_path: Path) -> dict | None:
         )
 
         raw_metrics = model_metrics.compute_all_classification_metrics(
-            true,
-            pred,
-            y_proba=proba,
+            true, pred, y_proba=proba
         )
         per_class_metrics = raw_metrics["precision_recall_f1_per_class"]
         class_map = {-1: "Short", 0: "Hold", 1: "Long"}
@@ -148,8 +131,6 @@ def _load_prediction_stats(preds_path: Path) -> dict | None:
         return None
 
 
-# Markdown builder
-
 _ZONE_EMOJI = {
     "excellent": "✅",
     "good": "🟢",
@@ -170,22 +151,6 @@ def _zone(key: str, value: float) -> str:
     return _ZONE_EMOJI.get(color, "⚪")
 
 
-def _fmt_pct(v: float) -> str:
-    return f"{v:.1f}%"
-
-
-def _fmt_f2(v: float) -> str:
-    return f"{v:.2f}"
-
-
-def _fmt_dollar(v: float) -> str:
-    return f"${v:,.0f}"
-
-
-def _tbl_row(*cells: str) -> str:
-    return "| " + " | ".join(cells) + " |"
-
-
 def _build_markdown(
     config: Config,
     metrics: dict,
@@ -193,51 +158,31 @@ def _build_markdown(
     feature_importance: dict,
     pred_stats: dict | None,
 ) -> str:
-    """Build concise metrics-first markdown report.
-
-    Args:
-        config: Loaded runtime configuration.
-        metrics: Backtest metrics dictionary.
-        trades: Backtest trades list.
-        feature_importance: Feature importance values.
-        pred_stats: Preloaded prediction statistics, if available.
-
-    Returns:
-        Rendered markdown report content.
-    """
+    """Build concise metrics-first markdown report."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     session = config.paths.session_dir or "N/A"
     L: list[str] = []
 
-    # -- Header --
     L.append(f"# Thesis Report: {_model_label(config)} — XAU/USD")
     L.append("")
     L.append(f"> Generated: {now} | Session: `{session}`")
     L.append("")
 
-    # -- Executive Summary --
     L.append("## Executive Summary")
     L.append("")
     _exec_table(L, metrics, pred_stats)
     _exec_verdict(L, metrics, pred_stats)
     L.append("")
 
-    # -- Configuration --
     L.append("## Configuration")
     L.append("")
     _config_table(L, config)
     L.append("")
 
-    # ── SECTION 1: Data Quality ──
     _render_data_quality_section(L, config)
-
-    # ── SECTION 2: Label Design & Methodology ──
     _render_label_design_section(L, config)
-
-    # ── SECTION 3: Validation Methodology ──
     _render_validation_methodology_section(L, config)
 
-    # ── SECTION 4: Classification Metrics (Primary) ──
     L.append("## Classification Metrics")
     L.append("")
     L.append(
@@ -249,7 +194,6 @@ def _build_markdown(
     _accuracy_table(L, pred_stats, config)
     L.append("")
 
-    # ── SECTION 5: Model Architecture & Features ──
     L.append("## Model Architecture & Features")
     L.append("")
     if config.model.architecture == "hybrid":
@@ -257,16 +201,10 @@ def _build_markdown(
     _feature_importance_table(L, feature_importance)
     L.append("")
 
-    # ── SECTION 6: Model Comparison ──
     _static_vs_hybrid_comparison(L, config)
-
-    # ── SECTION 6b: Baseline Comparison ──
     _render_baseline_comparison_section(L, config)
-
-    # ── SECTION 7: Auxiliary Regression Metrics ──
     _render_auxiliary_regression_section(L, pred_stats)
 
-    # ── SECTION 8: Application Demo — Backtest Results ──
     L.append("## Application Demo: Backtest Results")
     L.append("")
     L.append(
@@ -280,15 +218,12 @@ def _build_markdown(
     _render_metric_zones_section(L, metrics, trades)
     L.append("")
 
-    # ── SECTION 9: Application Demo — Benchmark Comparison ──
     L.append("## Application Demo: Benchmark Comparison")
     L.append("")
     _benchmark_comparison_table(L, metrics, config)
 
-    # ── SECTION 10: OOF vs OOS Generalization Check ──
     _render_oof_vs_oos_section(L, config)
 
-    # ── SECTION 11: Issues & Recommendations ──
     L.append("## Issues & Recommendations")
     L.append("")
     _issues_list(L, metrics, trades, config, pred_stats)
@@ -315,19 +250,21 @@ def _build_model_evaluation_markdown(
         lines.append("*Prediction statistics unavailable.*")
         return "\n".join(lines)
 
+    def _pct(v, default=0.0):
+        return f"{float(v if v is not None else default) * 100:.2f}%"
+
+    def _f4(v, default=0.0):
+        return f"{float(v if v is not None else default):.4f}"
+
     lines.append("## Classification Metrics (Primary)")
     lines.append("")
     lines.append("| Metric | Value |")
     lines.append("|---|---|")
-    lines.append(f"| Accuracy | {pred_stats.get('accuracy', 0.0) * 100:.2f}% |")
-    lines.append(
-        f"| Directional Accuracy |"
-        f" {pred_stats.get('directional_accuracy', 0.0) * 100:.2f}% |"
-    )
-    lines.append(f"| Macro F1 | {pred_stats.get('macro_f1', 0.0):.4f} |")
-    lines.append(
-        f"| Balanced Accuracy | {pred_stats.get('balanced_accuracy', 0.0) * 100:.2f}% |"
-    )
+    lines.append(f"| Accuracy | {_pct(pred_stats.get('accuracy'))} |")
+    da = _pct(pred_stats.get("directional_accuracy"))
+    lines.append(f"| Directional Accuracy | {da} |")
+    lines.append(f"| Macro F1 | {_f4(pred_stats.get('macro_f1'))} |")
+    lines.append(f"| Balanced Accuracy | {_pct(pred_stats.get('balanced_accuracy'))} |")
     lines.append("")
     lines.append("## Per-Class Metrics")
     lines.append("")
@@ -359,40 +296,25 @@ def _build_model_evaluation_markdown(
         "| Model | Directional Acc | Accuracy | Macro F1 | Long F1 | Short F1 |"
     )
     lines.append("|---|---:|---:|---:|---:|---:|")
+
+    def _cell(row: dict, key: str, fmt: str = "pct") -> str:
+        v = row.get(key)
+        if v is None:
+            return ""
+        return f"{float(v) * 100:.2f}%" if fmt == "pct" else f"{float(v):.4f}"
+
     for row in model_comparison_rows:
         lines.append(
-            "| {model} | {da} | {acc} | {mf1} | {lf1} | {sf1} |".format(
-                model=row.get("model", ""),
-                da=""
-                if row.get("directional_accuracy") is None
-                else f"{float(row['directional_accuracy']) * 100:.2f}%",
-                acc=""
-                if row.get("accuracy") is None
-                else f"{float(row['accuracy']) * 100:.2f}%",
-                mf1=""
-                if row.get("macro_f1") is None
-                else f"{float(row['macro_f1']):.4f}",
-                lf1=""
-                if row.get("long_f1") is None
-                else f"{float(row['long_f1']):.4f}",
-                sf1=""
-                if row.get("short_f1") is None
-                else f"{float(row['short_f1']):.4f}",
-            )
+            f"| {row.get('model', '')} | {_cell(row, 'directional_accuracy')}"
+            f" | {_cell(row, 'accuracy')} | {_cell(row, 'macro_f1', 'f4')}"
+            f" | {_cell(row, 'long_f1', 'f4')} | {_cell(row, 'short_f1', 'f4')} |"
         )
     lines.append("")
     return "\n".join(lines)
 
 
-# Public entry point
-
-
 def generate_report(config: Config) -> None:
-    """Generate thesis report with static charts and markdown.
-
-    Args:
-        config: Loaded application configuration.
-    """
+    """Generate thesis report with static charts and markdown."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -429,20 +351,15 @@ def generate_report(config: Config) -> None:
         _plot_equity_curve(trades, config, out_dir)
         feature_importance = _load_feature_importance(config, out_dir)
         _plot_feature_importance(feature_importance, out_dir)
-    # Markdown Report
+
     with console.status("[cyan]Building thesis markdown[/]"):
         pred_stats = _load_prediction_stats(Path(config.paths.predictions))
         model_comparison_rows = _build_model_comparison_rows(config, pred_stats)
-        md = _build_markdown(
-            config,
-            metrics,
-            trades,
-            feature_importance,
-            pred_stats,
-        )
+        md = _build_markdown(config, metrics, trades, feature_importance, pred_stats)
         model_eval_md = _build_model_evaluation_markdown(
             config, pred_stats, model_comparison_rows
         )
+
     report_path = Path(config.paths.report)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     with open(report_path, "w") as f:

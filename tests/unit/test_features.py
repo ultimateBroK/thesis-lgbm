@@ -17,23 +17,21 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from helpers import create_synthetic_ohlcv
 from thesis.shared.config import Config
 from thesis.shared.constants import EXCLUDE_COLS
-from thesis.stage_2_features.indicators.core import (
-    _add_rsi,
-    _add_atr,
-    _add_macd,
-    _add_context_features,
-    _add_pivot_position,
-    _add_ny_session_dummies,
-)
-from thesis.stage_2_features.indicators.trend import (
-    _add_ema_crossover,
-    _add_price_action_features,
-    _add_volume_zscore,
-    _add_log_returns,
-    _add_high_low_range,
+from thesis.stage_2_features.indicators import (
     _add_adx,
+    _add_atr,
+    _add_context_features,
+    _add_ema_crossover,
     _add_ema_slope,
+    _add_high_low_range,
+    _add_log_returns,
+    _add_macd,
+    _add_ny_session_dummies,
+    _add_pivot_position,
+    _add_price_action_features,
     _add_regime,
+    _add_rsi,
+    _add_volume_zscore,
 )
 
 
