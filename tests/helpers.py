@@ -179,8 +179,8 @@ def create_synthetic_labeled_data(
     atr_col = f"atr_{config.features.atr_period}"
     atr = df[atr_col].to_numpy()
 
-    upper_barrier = close + config.labels.atr_tp_multiplier * atr
-    lower_barrier = close - config.labels.atr_sl_multiplier * atr
+    upper_barrier = close + config.labels.barrier_atr_multiplier * atr
+    lower_barrier = close - config.labels.barrier_atr_multiplier * atr
 
     # touched_bar: offset in bars when barrier was hit, -1 for hold
     horizon = config.labels.horizon_bars

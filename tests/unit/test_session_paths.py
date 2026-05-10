@@ -22,9 +22,8 @@ def test_configure_session_paths_sets_model_gru_predictions_backtest_report(
 
     assert cfg.paths.session_dir == str(session)
     assert cfg.paths.model == str(session / "models" / "lightgbm_model.pkl")
-    assert cfg.paths.gru_model == str(session / "models" / "gru_model.pt")
     assert cfg.paths.predictions == str(
-        session / "predictions" / "final_predictions.parquet"
+        session / "predictions" / "final_predictions.csv"
     )
     assert cfg.paths.backtest_results == str(
         session / "backtest" / "backtest_results.json"

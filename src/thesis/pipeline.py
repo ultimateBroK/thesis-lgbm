@@ -33,7 +33,7 @@ _STAGE_CONFIG_SECTIONS: dict[int, list[str]] = {
     1: ["data"],
     2: ["features"],
     3: ["labels"],
-    4: ["model", "gru", "validation"],
+    4: ["model", "validation"],
     5: ["backtest", "labels"],
     6: [],
 }
@@ -169,7 +169,7 @@ def run_pipeline(config: Config) -> None:
     1. Data preparation — download and cache OHLCV bars.
     2. Feature engineering — compute technical indicators.
     3. Triple-barrier labeling — generate directional labels.
-    4. Model training — walk-forward or static GRU + LightGBM.
+    4. Model training — walk-forward LightGBM training.
     5. Backtesting — optional simulation of model signals.
     6. Report generation — write Markdown and HTML artefacts.
 

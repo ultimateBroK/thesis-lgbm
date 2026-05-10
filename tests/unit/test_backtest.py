@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from thesis.shared.config import Config
 from thesis.stage_5_backtest import (
-    HybridGRUStrategy,
+    LightGBMStrategy,
     run_backtest_from_data,
     run_backtest_manual,
 )
@@ -367,7 +367,7 @@ def test_position_size_ignores_confidence_after_gate() -> None:
             "lots_per_trade": 0.1,
             "min_lots": 0.05,
             "max_lots": 0.2,
-            "_compute_lots": HybridGRUStrategy._compute_lots,
+            "_compute_lots": LightGBMStrategy._compute_lots,
         },
     )()
 
@@ -387,7 +387,7 @@ def test_position_size_clamps_fixed_lots_to_bounds() -> None:
             "lots_per_trade": 0.001,
             "min_lots": 0.05,
             "max_lots": 0.2,
-            "_compute_lots": HybridGRUStrategy._compute_lots,
+            "_compute_lots": LightGBMStrategy._compute_lots,
         },
     )()
     too_large = type(
@@ -397,7 +397,7 @@ def test_position_size_clamps_fixed_lots_to_bounds() -> None:
             "lots_per_trade": 0.5,
             "min_lots": 0.05,
             "max_lots": 0.2,
-            "_compute_lots": HybridGRUStrategy._compute_lots,
+            "_compute_lots": LightGBMStrategy._compute_lots,
         },
     )()
 

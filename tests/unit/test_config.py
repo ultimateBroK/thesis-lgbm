@@ -14,8 +14,8 @@ def test_label_backtest_barriers_match() -> None:
     """Signals and trades must use the same ATR barriers."""
     cfg = Config()
 
-    assert cfg.labels.atr_tp_multiplier == cfg.backtest.atr_tp_multiplier
-    assert cfg.labels.atr_sl_multiplier == cfg.backtest.atr_stop_multiplier
+    assert cfg.labels.barrier_atr_multiplier == cfg.backtest.atr_tp_multiplier
+    assert cfg.labels.barrier_atr_multiplier == cfg.backtest.atr_stop_multiplier
 
 
 @pytest.mark.unit
@@ -39,7 +39,6 @@ architecture = "hybrid"
     assert cfg.data.start_date == "2018-01-01"
     assert cfg.splitting.test_end == "2026-04-30 23:59:59"
     assert cfg.features.static_feature_cols == list(CORE_STATIC_FEATURES)
-    assert cfg.gru.input_size == len(cfg.gru.feature_cols)
     assert cfg.paths.model == "models/lightgbm_model.pkl"
 
 
@@ -92,7 +91,7 @@ class TestCacheHash:
         h_base = _cache_hash(cfg, stage)
 
         cfg_label_alt = Config()
-        cfg_label_alt.labels.atr_tp_multiplier = 999.0
+        cfg_label_alt.labels.barrier_atr_multiplier = 999.0
         assert h_base == _cache_hash(cfg_label_alt, stage)
 
         cfg_model_alt = Config()
@@ -104,7 +103,7 @@ class TestCacheHash:
         assert _cache_hash(Config(), stage_num=6) == ""
 
     def test_stage_4_tracks_training_sections(self) -> None:
-        """Training hash should track model and GRU edits."""
+        """Training hash should track model edits."""
         cfg_a = Config()
 
         cfg_b = Config()
@@ -112,8 +111,7 @@ class TestCacheHash:
         assert _cache_hash(cfg_a, 4) != _cache_hash(cfg_b, 4)
 
         cfg_c = Config()
-        cfg_c.gru.hidden_size = 256
-        assert _cache_hash(cfg_a, 4) != _cache_hash(cfg_c, 4)
+        cfg_c.model.num_leaves = 256
 
 
 @pytest.mark.unit

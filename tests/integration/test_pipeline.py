@@ -54,7 +54,6 @@ def pipeline_config(temp_pipeline_dir: Path) -> Config:
         temp_pipeline_dir / "data" / "processed" / "test.parquet"
     )
     config.paths.model = str(temp_pipeline_dir / "models" / "lightgbm_model.pkl")
-    config.paths.gru_model = str(temp_pipeline_dir / "models" / "gru_model.pt")
     config.paths.predictions = str(
         temp_pipeline_dir / "data" / "predictions" / "final_predictions.parquet"
     )
@@ -328,7 +327,7 @@ def test_pipeline_static_baseline_smoke(pipeline_config: Config) -> None:
 
     pipeline_config.backtest.confidence_threshold = 0.0
     pipeline_config.backtest.atr_tp_multiplier = (
-        pipeline_config.labels.atr_tp_multiplier
+        pipeline_config.labels.barrier_atr_multiplier
     )
 
     run_pipeline(pipeline_config)
@@ -396,20 +395,18 @@ def test_new_stage_package_layout() -> None:
     from thesis.stage_4_training import (
         WalkForwardWindow,
         generate_windows,
-        train_gru,
         train_model,
     )
 
     assert callable(generate_windows)
-    assert callable(train_gru)
     assert callable(train_model)
     assert WalkForwardWindow is not None
 
     # Stage 5 — backtest
-    from thesis.stage_5_backtest import HybridGRUStrategy, run_backtest
+    from thesis.stage_5_backtest import LightGBMStrategy, run_backtest
 
     assert callable(run_backtest)
-    assert HybridGRUStrategy is not None
+    assert LightGBMStrategy is not None
 
     # Stage 6 — reporting
     from thesis.stage_6_reporting import generate_report

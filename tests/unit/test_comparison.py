@@ -322,7 +322,7 @@ class TestBuildModelComparisonRows:
 
     def test_with_predictions_file(self, tmp_path) -> None:
         config = Config()
-        config.paths.predictions = str(tmp_path / "preds.parquet")
+        config.paths.predictions = str(tmp_path / "preds.csv")
         config.paths.ohlcv = str(tmp_path / "ohlcv.parquet")
 
         n = 30
@@ -338,7 +338,7 @@ class TestBuildModelComparisonRows:
                 "pred_label": np.random.choice([-1, 0, 1], n),
             }
         )
-        preds_df.write_parquet(tmp_path / "preds.parquet")
+        preds_df.write_csv(tmp_path / "preds.csv")
 
         rows = _build_model_comparison_rows(config, None)
         assert len(rows) >= 1

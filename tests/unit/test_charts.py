@@ -416,8 +416,8 @@ class TestLoadSessionData:
 
         preds_dir = tmp_path / "predictions"
         preds_dir.mkdir()
-        preds_path = preds_dir / "final_predictions.parquet"
-        pl.DataFrame({"a": [1]}).write_parquet(preds_path)
+        preds_path = preds_dir / "final_predictions.csv"
+        pl.DataFrame({"a": [1]}).write_csv(preds_path)
 
         result = load_session_data(config)
         assert result["predictions"] is not None

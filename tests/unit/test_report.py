@@ -361,9 +361,9 @@ def _make_wf_history_json(path: Path, window_details: list[dict]) -> None:
 
 
 def _make_predictions_parquet(path: Path, rows: list[dict]) -> None:
-    """Write a synthetic predictions parquet file."""
+    """Write a synthetic predictions CSV file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    pl.DataFrame(rows).write_parquet(path)
+    pl.DataFrame(rows).write_csv(path)
 
 
 @pytest.mark.unit

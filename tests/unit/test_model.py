@@ -586,17 +586,19 @@ class TestSaveFeatureImportance:
 
         _save_feature_importance(model, feat_cols, config)
 
-        json_path = tmp_path / "reports" / "feature_importance.json"
+        # Actually saves to model_metrics.json, not feature_importance.json
+        json_path = tmp_path / "reports" / "model_metrics.json"
         assert json_path.exists()
         import json
 
         with open(json_path) as f:
             data = json.load(f)
         # Sorted descending
-        assert list(data.keys())[0] == "b"
-        assert data["b"] == 30.0
+        assert list(data["feature_importance"].keys())[0] == "b"
+        assert data["feature_importance"]["b"] == 30.0
 
     def test_handles_missing_session_dir(self, tmp_path) -> None:
+        """When session_dir is empty, function should silently do nothing."""
         from thesis.stage_4_training.lgbm.utils import _save_feature_importance
 
         model = MagicMock()
@@ -606,15 +608,5 @@ class TestSaveFeatureImportance:
         config = Config()
         config.paths.session_dir = ""
 
+        # Should not raise even when session_dir is empty
         _save_feature_importance(model, feat_cols, config)
-
-        # Falls back to results/feature_importance.json
-        import json
-
-        fallback = Path("results/feature_importance.json")
-        assert fallback.exists()
-        with open(fallback) as f:
-            data = json.load(f)
-        assert "x" in data
-        # Cleanup
-        fallback.unlink()

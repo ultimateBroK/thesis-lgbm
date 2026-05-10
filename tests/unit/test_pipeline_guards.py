@@ -18,8 +18,7 @@ def test_backtest_barrier_mismatch_raises() -> None:
     from thesis.pipeline import _run_backtest_with_barrier_guard
 
     config = Config()
-    config.labels.atr_tp_multiplier = 2.0
-    config.labels.atr_sl_multiplier = 1.0
+    config.labels.barrier_atr_multiplier = 2.0
     config.backtest.atr_tp_multiplier = 3.0
     config.backtest.atr_stop_multiplier = 1.0
 
@@ -33,96 +32,14 @@ def test_backtest_barrier_match_calls_backtest() -> None:
     from thesis.pipeline import _run_backtest_with_barrier_guard
 
     config = Config()
-    config.labels.atr_tp_multiplier = 2.0
-    config.labels.atr_sl_multiplier = 1.0
+    config.labels.barrier_atr_multiplier = 2.0
     config.backtest.atr_tp_multiplier = 2.0
-    config.backtest.atr_stop_multiplier = 1.0
+    config.backtest.atr_stop_multiplier = 2.0
 
     with patch("thesis.pipeline.run_backtest") as run_bt:
         _run_backtest_with_barrier_guard(config)
 
     run_bt.assert_called_once_with(config)
-
-
-# ---------------------------------------------------------------------------
-# Purge guard — pipeline raises ValueError when gap < sequence_length
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-def test_purge_guard_raises_on_insufficient_gap() -> None:
-    """Pipeline must reject purge+embargo < sequence_length."""
-    config = Config()
-    # Set gap smaller than sequence_length to trigger the guard
-    config.validation.purge_bars = 5
-    config.validation.embargo_bars = 10  # gap = 15
-    config.gru.sequence_length = 48  # gap < seq_len → should raise
-    config.gru.objective = "multiclass"  # guard test doesn't need regression target
-
-    # The guard lives inside train_hybrid_walk_forward which reads parquet.
-    # We mock the file I/O and generate_windows to reach the guard.
-    mock_df = MagicMock()
-    mock_df.__len__ = MagicMock(return_value=100_000)
-    mock_windows = [MagicMock()]  # non-empty to pass the first check
-
-    with (
-        patch(
-            "thesis.stage_4_training.walk_forward.hybrid.Path",
-            return_value=MagicMock(),
-        ),
-        patch(
-            "thesis.stage_4_training.walk_forward.hybrid.pl.read_parquet",
-            return_value=mock_df,
-        ),
-        patch(
-            "thesis.stage_4_training.walk_forward.hybrid.generate_windows",
-            return_value=mock_windows,
-        ),
-        patch("thesis.stage_4_training.walk_forward.hybrid.log_windows"),
-        pytest.raises(ValueError, match="Leakage risk"),
-    ):
-        from thesis.stage_4_training.walk_forward.hybrid import train_hybrid_walk_forward
-
-        train_hybrid_walk_forward(config)
-
-
-@pytest.mark.unit
-def test_purge_guard_passes_with_sufficient_gap() -> None:
-    """Pipeline should NOT raise when gap >= sequence_length."""
-    config = Config()
-    config.validation.purge_bars = 25
-    config.validation.embargo_bars = 50  # gap = 75
-    config.gru.sequence_length = 48  # gap >= seq_len → OK
-
-    mock_df = MagicMock()
-    mock_df.__len__ = MagicMock(return_value=100_000)
-    # Empty columns list for feature discovery
-    mock_df.columns = []
-    mock_windows = [MagicMock()]
-
-    with (
-        patch(
-            "thesis.stage_4_training.walk_forward.hybrid.pl.read_parquet",
-            return_value=mock_df,
-        ),
-        patch(
-            "thesis.stage_4_training.walk_forward.hybrid.generate_windows",
-            return_value=mock_windows,
-        ),
-        patch("thesis.stage_4_training.walk_forward.hybrid.log_windows"),
-    ):
-        from thesis.stage_4_training.walk_forward.hybrid import train_hybrid_walk_forward
-
-        # Should NOT raise the purge guard ValueError.
-        # It will fail later (no real data), but the guard is what we test.
-        try:
-            train_hybrid_walk_forward(config)
-        except ValueError as e:
-            # Must NOT be the leakage guard error
-            assert "Leakage risk" not in str(e)
-        except (RuntimeError, FileNotFoundError, AttributeError):
-            # Expected — no real data/model artifacts
-            pass
 
 
 # ---------------------------------------------------------------------------
@@ -170,14 +87,10 @@ class TestStageNumbering:
         import thesis.shared.ui as ui_a
         import thesis.pipeline as pipeline
         from thesis.stage_4_training.lgbm import training as _lgbm
-        from thesis.stage_4_training.walk_forward import (
-            hybrid as _wf_hybrid,
-            lgbm as _wf_lgbm,
-        )
+        from thesis.stage_4_training.walk_forward import lgbm as _wf_lgbm
 
         assert pipeline.console is ui_a.console
         assert _lgbm.console is ui_a.console
-        assert _wf_hybrid.console is ui_a.console
         assert _wf_lgbm.console is ui_a.console
 
     @pytest.mark.unit

@@ -25,7 +25,6 @@ def mock_config():
         LabelsConfig,
         LGBMConfig,
         WorkflowConfig,
-        GRUConfig,
         BacktestConfig,
     )
 
@@ -50,7 +49,6 @@ def mock_config():
         labels=LabelsConfig(),
         model=LGBMConfig(),
         backtest=BacktestConfig(),
-        gru=GRUConfig(),
         workflow=WorkflowConfig(),
         paths=PathsConfig(data_raw="data/raw/XAUUSD"),
     )

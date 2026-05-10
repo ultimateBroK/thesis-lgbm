@@ -71,7 +71,6 @@ def _build_all_features(df: pl.DataFrame, config: Config) -> pl.DataFrame:
     keep_features = sorted(
         {
             *config.features.static_feature_cols,
-            *config.gru.feature_cols,
         }
     )
     keep_cols = [
