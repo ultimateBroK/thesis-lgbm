@@ -12,25 +12,23 @@ import math
 
 import numpy as np
 
+from thesis.shared.zones import _get_metric_zone
+
 # ---------------------------------------------------------------------------
 # Module-level constants (re-exported by __init__.py for _tables.py)
 # ---------------------------------------------------------------------------
 
-# Model quality assessment
 _QUALITY_ACC_DELTA: float = 0.05
 _QUALITY_DIR_ACC_GOOD: float = 0.55
 _QUALITY_MACRO_F1_GOOD: float = 0.45
 _QUALITY_DIR_ACC_FAIR: float = 0.50
 
-# Trading edge classification
 _EDGE_PF_NEGATIVE: float = 1.0
 _EDGE_SHARPE_MARGINAL: float = 1.0
 _EDGE_PF_MARGINAL: float = 1.5
 
-# Deployment recommendation
 _MIN_TRADES_DEPLOYABLE: int = 30
 
-# Issue identification thresholds
 _ISSUE_DD_CATASTROPHIC: float = 50.0
 _ISSUE_DD_ELEVATED: float = 30.0
 _ISSUE_DD_CFD_ELEVATED: float = 20.0
@@ -41,11 +39,18 @@ _ISSUE_TRADES_MARGINAL: int = 100
 _ISSUE_SHARPE_POOR: float = 0.5
 _ISSUE_PF_MARGINAL_EDGE: float = 1.2
 
-# Severity / priority ordering for _render_issues
 _SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2}
 _PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2, "info": 3}
 _SEVERITY_ICON = {"critical": "🔴", "warning": "🟡", "info": "✅"}
 _PRIORITY_ICON = {"high": "🔴", "medium": "🟡", "low": "🔵", "info": "✅"}
+
+_ZONE_EMOJI_MAP: dict[str, str] = {
+    "excellent": "✅",
+    "good": "🟢",
+    "moderate": "🟡",
+    "poor": "🟠",
+    "dangerous": "🔴",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -54,74 +59,16 @@ _PRIORITY_ICON = {"high": "🔴", "medium": "🟡", "low": "🔵", "info": "✅"
 
 
 def _get_zone_info(metric_name: str, value: float | None) -> tuple[str, str, str]:
-    """Return (emoji, zone_label, recommended_range) for a backtest metric."""
+    """Return (emoji, zone_label, recommended_range) for a backtest metric.
+
+    Delegates to zones._get_metric_zone for consistent threshold application.
+    """
     if value is None or (isinstance(value, float) and math.isnan(value)):
         return ("⚪", "N/A", "N/A")
 
-    zones: dict[str, list[tuple[float | None, float | None, str, str, str]]] = {
-        "return_pct": [
-            (None, 0, "🔴", "Below 0 — Loss", "> 0%"),
-            (0, 10, "🟡", "0–10% — Low", "> 10%"),
-            (10, None, "🟢", "> 10% — Good", "> 10%"),
-        ],
-        "sharpe_ratio": [
-            (None, 0, "🔴", "Below 0 — Negative", "> 1.0"),
-            (0, 1.0, "🟡", "0–1.0 — Acceptable", "> 1.0"),
-            (1.0, None, "🟢", "> 1.0 — Good", "> 1.0"),
-        ],
-        "max_drawdown_pct": [
-            (None, -30, "🔴", "> 30% — Dangerous", "< 15%"),
-            (-30, -15, "🟡", "15–30% — Moderate", "< 15%"),
-            (-15, None, "🟢", "< 15% — Excellent", "< 15%"),
-        ],
-        "win_rate_pct": [
-            (None, 40, "🔴", "< 40% — Low", "> 55%"),
-            (40, 55, "🟡", "40–55% — Acceptable", "> 55%"),
-            (55, None, "🟢", "> 55% — Good", "> 55%"),
-        ],
-        "profit_factor": [
-            (None, 1.0, "🔴", "< 1.0 — Losing", "> 1.5"),
-            (1.0, 1.5, "🟡", "1.0–1.5 — Marginal", "> 1.5"),
-            (1.5, None, "🟢", "> 1.5 — Good", "> 1.5"),
-        ],
-        "calmar_ratio": [
-            (None, 0, "🔴", "Below 0 — Negative", "> 1.0"),
-            (0, 1.0, "🟡", "0–1.0 — Acceptable", "> 1.0"),
-            (1.0, None, "🟢", "> 1.0 — Good", "> 1.0"),
-        ],
-        "sortino_ratio": [
-            (None, 0, "🔴", "Below 0 — Negative", "> 1.0"),
-            (0, 1.0, "🟡", "0–1.0 — Acceptable", "> 1.0"),
-            (1.0, None, "🟢", "> 1.0 — Good", "> 1.0"),
-        ],
-        "avg_win_loss_ratio": [
-            (None, 1.0, "🔴", "< 1.0 — Losing", "> 1.5"),
-            (1.0, 1.5, "🟡", "1.0–1.5 — Marginal", "> 1.5"),
-            (1.5, None, "🟢", "> 1.5 — Good", "> 1.5"),
-        ],
-        "expectancy_pct": [
-            (None, 0, "🔴", "< 0% — Negative", "> 0.5%"),
-            (0, 0.5, "🟡", "0–0.5% — Small Edge", "> 0.5%"),
-            (0.5, None, "🟢", "> 0.5% — Good", "> 0.5%"),
-        ],
-    }
-
-    zone_list = zones.get(metric_name)
-    if zone_list is None:
-        return ("⚪", "Unclassified", "N/A")
-
-    for lo, hi, emoji, label, rec in zone_list:
-        if lo is None:
-            if value <= (hi or 0):
-                return (emoji, label, rec)
-        elif hi is None:
-            if value > lo:
-                return (emoji, label, rec)
-        else:
-            if lo < value <= hi:
-                return (emoji, label, rec)
-
-    return ("⚪", "Unclassified", "N/A")
+    color, label, rec = _get_metric_zone(metric_name, value)
+    emoji = _ZONE_EMOJI_MAP.get(color, "⚪")
+    return (emoji, label, rec)
 
 
 def _assess_model_quality(pred_stats: dict) -> tuple[str, str]:

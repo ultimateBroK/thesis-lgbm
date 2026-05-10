@@ -22,9 +22,10 @@ from thesis.stage_6_reporting.benchmarks import (
 )
 from thesis.stage_6_reporting.md_format import _fmt_dollar, _fmt_f2, _fmt_pct, _tbl_row
 from thesis.stage_6_reporting.sections import (
-    _EDGE_PF_NEGATIVE,
-    _ISSUE_DD_CATASTROPHIC,
-    _QUALITY_DIR_ACC_FAIR,
+    _assess_model_quality,
+    _assess_trading_edge,
+    _derive_recommendation,
+    _identify_primary_issue,
     _render_issues,
     _render_ml_quality_paragraph,
     _render_primary_issue,
@@ -603,7 +604,9 @@ def _issues_list(
 ) -> None:
     """High-signal issues and recommendations from report metrics.
 
-    Only the most critical checks are included to keep the report focused.
+    Delegates to assess module functions for consistent logic with verdict
+    section. Only the most critical checks are included to keep the report
+    focused.
 
     Args:
         L: Output markdown lines.
@@ -620,71 +623,22 @@ def _issues_list(
         _render_issues(L, issues, recs)
         return
 
-    sharpe = metrics.get("sharpe_ratio", 0)
-    dd = abs(metrics.get("max_drawdown_pct", 0))
-    pf = metrics.get("profit_factor", 0)
-    n_trades = int(metrics.get("num_trades", 0))
-    dir_acc = pred_stats.get("directional_accuracy", 0) if pred_stats else 0
+    primary = _identify_primary_issue(metrics, pred_stats)
+    if primary:
+        issues.append(("critical", primary))
 
-    # — Core high-signal checks —
+    model_quality, _ = _assess_model_quality(pred_stats) if pred_stats else ("POOR", "")
+    trading_edge, _ = _assess_trading_edge(metrics)
+    recommendation = _derive_recommendation(model_quality, trading_edge, metrics)
 
-    if n_trades == 0:
-        issues.append(
-            (
-                "critical",
-                "Zero trades executed — model produces no actionable"
-                " signals in test period.",
-            )
-        )
-
-    if sharpe < 0:
-        issues.append(
-            (
-                "critical",
-                f"Sharpe {sharpe:.2f} is negative"
-                " — strategy underperforms risk-free rate.",
-            )
-        )
-
-    if dd > _ISSUE_DD_CATASTROPHIC:
-        issues.append(
-            (
-                "critical",
-                f"Max drawdown {dd:.1f}% > {_ISSUE_DD_CATASTROPHIC:.0f}%"
-                " — catastrophic capital erosion.",
-            )
-        )
-
-    if pf < _EDGE_PF_NEGATIVE:
-        issues.append(
-            (
-                "critical",
-                f"Profit factor {pf:.2f} < {_EDGE_PF_NEGATIVE:.1f}"
-                " — strategy loses money on average.",
-            )
-        )
-
-    if dir_acc > 0 and dir_acc < _QUALITY_DIR_ACC_FAIR:
-        issues.append(
-            (
-                "critical",
-                f"Directional accuracy {dir_acc:.1%}"
-                f" < {_QUALITY_DIR_ACC_FAIR:.0%}"
-                " — model predicts worse than random.",
-            )
-        )
+    if recommendation.startswith("NOT DEPLOYABLE"):
+        recs.append(("high", f"Fix root causes before deployment: {recommendation}."))
+    elif recommendation.startswith("DEPLOYABLE with caution"):
+        recs.append(("medium", f"Edge is marginal — {recommendation}."))
+    else:
+        recs.append(("info", recommendation))
 
     if not issues:
         issues.append(("info", "No critical issues identified."))
-
-    # — Single actionable recommendation —
-    if not recs:
-        recs.append(
-            (
-                "info",
-                "Consider walk-forward validation for production"
-                " readiness and robustness testing.",
-            )
-        )
 
     _render_issues(L, issues, recs)

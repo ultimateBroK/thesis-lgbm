@@ -107,13 +107,14 @@ def _get_metric_zone(metric_name: str, value: float) -> tuple[str, str, str]:
 
     # ========== Max Drawdown ==========
     if metric_name == "max_drawdown_pct":
-        if value > -10:
+        value = abs(value)
+        if value < 10:
             return ("excellent", "Excellent", "<10% — exceptional capital preservation")
-        if value > -20:
+        if value < 20:
             return ("good", "Good", "10-20% — conservative drawdown")
-        if value > -35:
+        if value < 35:
             return ("moderate", "Moderate", "20-35% — typical for volatile instruments")
-        if value > -50:
+        if value < 50:
             return ("poor", "Significant", "35-50% — high, assess suitability")
         return ("dangerous", "Critical", ">50% — aggressive, question viability")
 

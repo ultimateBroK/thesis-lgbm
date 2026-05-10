@@ -183,12 +183,20 @@ def _render_oof_vs_oos_section(L: list[str], config: Config) -> None:
     # ── Render table ──
     L.append("## OOF vs OOS Generalization Check")
     L.append("")
+    test_start = config.splitting.test_start or "N/A"
+    test_end = config.splitting.test_end or "N/A"
+    if test_start != "N/A" and test_end != "N/A":
+        start_display = test_start[:7] if len(test_start) >= 7 else test_start
+        end_display = test_end[:7] if len(test_end) >= 7 else test_end
+        period_display = f"{start_display} to {end_display}"
+    else:
+        period_display = "N/A"
     L.append(
-        "*OOF (Out-Of-Fold) metrics are aggregated across all walk-forward "
-        "cross-validation windows. OOS (Out-Of-Sample) metrics are computed "
-        "from the held-out test period (2024-01 to 2026-03). A meaningful gap "
-        "between OOF and OOS suggests overfitting; close alignment suggests "
-        "the model generalizes well.*"
+        f"*OOF (Out-Of-Fold) metrics are aggregated across all walk-forward "
+        f"cross-validation windows. OOS (Out-Of-Sample) metrics are computed "
+        f"from the held-out test period ({period_display}). A meaningful gap "
+        f"between OOF and OOS suggests overfitting; close alignment suggests "
+        f"the model generalizes well.*"
     )
     L.append("")
     L.append(_tbl_row("Metric", "OOF (Walk-Forward)", "OOS (2024-2026)", "Delta"))
