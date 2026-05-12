@@ -25,12 +25,12 @@ Trọng tâm báo cáo:
 Kết quả gần nhất dùng để viết chương thực nghiệm:
 
 ```text
-Session: results/XAUUSD_1H_20260511_231114/
-Accuracy: 0.3397
-Balanced Accuracy: 0.3746
-Directional Accuracy: 0.4938
-Macro F1: 0.3162
-Backtest demo win rate: 47.67%
+Session: results/XAUUSD_1H_20260513_023811/
+Accuracy: 0.3416
+Balanced Accuracy: 0.3675
+Directional Accuracy: 0.4929
+Macro F1: 0.3152
+Backtest demo win rate: 47.17%
 ```
 
 Các nguồn học thuật chính gồm Fama (1970), Cont (2001), Lo et al. (2000), López de Prado (2018), Bailey et al. (2017), Wolpert (1992), Breiman (2001), Friedman (2001), Ke et al. (2017), Lundberg & Lee (2017). Danh mục đầy đủ nằm trong `tai_lieu_tham_khao.md`.
@@ -53,7 +53,7 @@ Nguyên tắc viết:
 - Viết theo hướng “pipeline đánh giá học máy tài chính có kiểm soát”.
 - Kết quả không thắng baseline vẫn có giá trị nếu được phân tích trung thực.
 - Mọi claim học thuật nên gắn với tài liệu tham khảo.
-- Mọi claim thực nghiệm nên gắn với artifact trong `results/XAUUSD_1H_20260511_231114/`.
+- Mọi claim thực nghiệm nên gắn với artifact trong `results/XAUUSD_1H_20260513_023811/`.
 
 ## Checklist trước khi nộp
 

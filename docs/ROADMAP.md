@@ -46,11 +46,11 @@
   - Risk gates: max drawdown, daily loss limit, cooldown
   - ATR stop-loss/take-profit aligned with label barriers
   - Barrier alignment guard
-  - Per-trade CSV, equity curve CSV, Bokeh chart
+  - Per-trade CSV, equity curve CSV, equity curve PNG, feature importance PNG, Bokeh chart
 - [x] **Evaluation-first reporting**: classification metrics primary, backtest secondary (`src/thesis/stage_6_reporting/`)
   - Full classification metrics (accuracy, directional accuracy, macro F1, per-class F1, confusion matrix)
   - Calibration metrics (ECE, Brier, log-loss)
-  - Model comparison table
+  - Model comparison table (CSV, MD, JSON)
   - Feature importance report
   - Metric quality zone assessment
   - Deployment recommendation engine
@@ -74,16 +74,20 @@
 ### Latest Verified Run
 
 ```text
-Session: results/XAUUSD_1H_20260511_231114/
-Hybrid Stacking accuracy: 0.3397
-Hybrid Stacking macro F1: 0.3162
-LightGBM accuracy: 0.3770
-LightGBM macro F1: 0.3281
-Backtest demo win rate: 47.67%
-Backtest demo trades: 172
+Session: results/XAUUSD_1H_20260513_023811/
+Pipeline runtime: 75.65 seconds
+Hybrid Stacking accuracy: 0.3416
+Hybrid Stacking macro F1: 0.3152
+LightGBM accuracy: 0.3738
+LightGBM macro F1: 0.3265
+Backtest demo return: 1.92%
+Backtest demo PF: 1.109
+Backtest demo Sharpe: 0.384
+Backtest demo win rate: 47.17%
+Backtest demo trades: 159
 ```
 
-Interpretation: the pipeline runs end-to-end. Hybrid Stacking does not beat LightGBM in this run, which should be reported honestly.
+Interpretation: the pipeline runs end-to-end in ~76 seconds. Hybrid Stacking does not beat LightGBM in this run, which should be reported honestly. All models remain below the majority baseline (0.4850).
 
 ### Documentation
 

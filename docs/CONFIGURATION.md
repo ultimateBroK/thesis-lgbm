@@ -28,8 +28,6 @@ This project keeps the public experiment surface in `config.toml`. Runtime datac
 symbol = "XAUUSD"                    # Ticker
 timeframe = "1H"                     # Bar granularity (supports M, H, D, W)
 market_tz = "America/New_York"       # Exchange timezone
-start_date = "2021-01-01"            # Ingestion start
-end_date = "2026-04-30"              # Ingestion end
 tick_size = 0.01                     # Minimum price increment
 contract_size = 100                  # Ounce value per lot
 ```
@@ -41,25 +39,15 @@ Hidden defaults (not in TOML):
 - `download_max_retries = 7`
 - `download_skip_current_month = true`
 
-### `[splitting]` — Static Train/Val/Test Boundaries
+### `[data_range]` — Data Ingestion Boundaries
 
 ```toml
-[splitting]
-train_start = "2021-01-01"
-train_end = "2024-12-31 23:59:59"
-val_start = "2025-01-01"
-val_end = "2025-12-31 23:59:59"
-test_start = "2026-01-01"
-test_end = "2026-04-30 23:59:59"
+[data_range]
+start = "2021-01-01"                # Ingestion start
+end = "2026-04-30"                   # Ingestion end
 ```
 
-These define the outer boundary of each split. Walk-forward windows slide within the train+val range. The test range is used for final out-of-sample evaluation.
-
-Hidden defaults:
-- `purge_bars = 48` — overrides `[validation]` purge if set here
-- `embargo_bars = 50` — scaled by timeframe automatically
-- `embargo_scale_by_timeframe = true`
-- `embargo_reference_timeframe = "1H"`
+These define the outer boundary of the dataset. Walk-forward windows slide within this range. The pipeline downloads and processes all data between `start` and `end`.
 
 ### `[validation]` — Walk-Forward Validation
 

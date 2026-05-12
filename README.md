@@ -62,10 +62,10 @@ Results are saved to:
 results/XAUUSD_1H_<timestamp>/
 ```
 
-Latest verified session during the current refactor run:
+Latest verified session:
 
 ```text
-results/XAUUSD_1H_20260511_231114/
+results/XAUUSD_1H_20260513_023811/
 ```
 
 ---

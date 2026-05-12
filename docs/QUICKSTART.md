@@ -39,7 +39,7 @@ Stage behavior is downstream-oriented: running from Stage 3 continues through St
 ### Resume an Existing Session
 
 ```bash
-pixi run python main.py --session XAUUSD_1H_20260511_231114 --stage 4 --force
+pixi run python main.py --session XAUUSD_1H_20260513_023811 --stage 4 --force
 ```
 
 This loads the config snapshot from the existing session and re-runs from Stage 4.
@@ -75,13 +75,16 @@ results/XAUUSD_1H_<timestamp>/
 │   ├── model_metrics.json            All computed metrics
 │   ├── model_comparison.csv          Model comparison table
 │   ├── model_comparison.md           Markdown comparison
+│   ├── model_comparison.json         Machine-readable comparison data
 │   ├── model_evaluation.md           Evaluation summary
 │   ├── walk_forward_history.json     Per-window training history
 │   └── feature_importance.json       Sorted feature importance
 ├── backtest/
 │   ├── backtest_results.json         Backtest metrics
-│   ├── trades.csv                    Per-trade records
+│   ├── trades_detail.csv             Per-trade records
 │   ├── equity_curve.csv              Running equity + drawdown
+│   ├── equity_curve.png              Static equity curve image
+│   ├── feature_importance.png        Feature importance chart
 │   └── backtest_chart.html           Bokeh equity curve
 ├── models/
 │   ├── lightgbm_model.pkl            Trained model

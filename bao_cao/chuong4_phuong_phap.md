@@ -285,7 +285,7 @@ Nếu không khớp, pipeline raise error. Đây là lựa chọn tốt vì nó 
 Khi báo cáo kết quả, cần nêu rõ session artifact:
 
 ```text
-results/XAUUSD_1H_20260511_231114/
+results/XAUUSD_1H_20260513_023811/
 ```
 
 Điều này giúp người đọc truy ngược từ số liệu trong luận văn về file kết quả cụ thể.

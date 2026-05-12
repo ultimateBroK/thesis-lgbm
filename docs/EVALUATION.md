@@ -68,37 +68,50 @@ Baseline metrics are computed using four strategies from `src/thesis/stage_4_tra
 Latest verified session:
 
 ```text
-results/XAUUSD_1H_20260511_231114/
+results/XAUUSD_1H_20260513_023811/
+Pipeline runtime: 75.65 seconds
 ```
 
 ### Classification Results
 
 ```text
-Accuracy              0.3397
-Balanced accuracy     0.3746
-Directional accuracy  0.4938
-Macro F1              0.3162
-Majority baseline     0.4840
+Accuracy              0.3416
+Balanced accuracy     0.3675
+Directional accuracy  0.4929
+Macro F1              0.3152
+Weighted F1           0.3674
+Majority baseline     0.4850
 ```
 
 Per-class F1:
 
 ```text
-Short  0.3684
-Hold   0.1848
-Long   0.3952
+Short  0.3640
+Hold   0.1780
+Long   0.4037
+```
+
+High-confidence (>0.7):
+
+```text
+Samples    182 (0.76% of total)
+Accuracy   0.2418
+Directional 0.5588
 ```
 
 ### Model Comparison
 
 ```text
-Hybrid Stacking     accuracy 0.3397, macro F1 0.3162
-Logistic Regression accuracy 0.3582, macro F1 0.3182
-Random Forest       accuracy 0.3580, macro F1 0.3265
-LightGBM            accuracy 0.3770, macro F1 0.3281
+Hybrid Stacking     accuracy 0.3416, macro F1 0.3152
+Logistic Regression accuracy 0.3568, macro F1 0.3173
+Random Forest       accuracy 0.3596, macro F1 0.3280
+LightGBM            accuracy 0.3738, macro F1 0.3265
+Naive Direction     accuracy 0.4574, macro F1 0.3178
+Majority Baseline   accuracy 0.4850, macro F1 0.2177
+Random Baseline     accuracy 0.3361, macro F1 0.3056
 ```
 
-Interpretation: Hybrid Stacking did not outperform LightGBM in this run. This is acceptable thesis evidence if reported honestly: more complex stacking is not guaranteed to beat a strong tabular booster on noisy financial data.
+Interpretation: Hybrid Stacking did not outperform LightGBM in this run. This is acceptable thesis evidence if reported honestly: more complex stacking is not guaranteed to beat a strong tabular booster on noisy financial data. All models remain below the majority baseline (0.4850), confirming the difficulty of the prediction task.
 
 ### Why Stacking May Underperform
 
@@ -130,12 +143,15 @@ A tested alternative, `horizon_bars = 48`, reduced Hold to about 1.5%, so it was
 Latest application-demo backtest:
 
 ```text
-Total return   0.04%
-Max drawdown  -3.13%
-Profit factor  0.96
-Sharpe ratio   0.01
-Win rate      47.67%
-Trades        172
+Period:        2022-01-27 to 2026-04-29
+Total return   1.92%
+Max drawdown  -2.72%
+Profit factor  1.109
+Sharpe ratio   0.384
+Sortino ratio  0.637
+Calmar ratio   0.138
+Win rate      47.17%
+Trades        159
 ```
 
 ### Backtest Metric Quality Zones
@@ -149,6 +165,8 @@ Backtest metrics are evaluated against quality benchmarks defined in `src/thesis
 | Profit Factor | < 1.0 | 1.0-1.5 | > 1.5 |
 | Sharpe Ratio | < 0.0 | 0.0-1.0 | > 1.0 |
 | Win Rate | < 40% | 40-55% | > 55% |
+
+Current backtest assessment: Fair zone (positive return, PF > 1.0, Sharpe in fair range).
 
 This does not prove a deployable trading strategy. It only shows how predictions can be consumed by a simple CFD signal simulator.
 

@@ -21,21 +21,22 @@ TP/SL của backtest cần khớp logic label. Nếu label dùng TP/SL 2.0 ATR n
 ## 6.3. Kết quả minh họa mới nhất
 
 ```text
-Session: results/XAUUSD_1H_20260511_231114/
-Period: 2022-01-27 21:00:00 -> 2026-04-28 23:00:00
-Final equity: 10,003.64
-Total return: 0.0364%
-Max drawdown: -3.1270%
-Sharpe ratio: 0.0074
-Sortino ratio: 0.0113
-Profit factor: 0.9570
-Win rate: 47.67%
-Trades: 172
+Session: results/XAUUSD_1H_20260513_023811/
+Period: 2022-01-27 -> 2026-04-29
+Initial equity: 10,000
+Total return: 1.92%
+Max drawdown: -2.72%
+Sharpe ratio: 0.384
+Sortino ratio: 0.637
+Calmar ratio: 0.138
+Profit factor: 1.109
+Win rate: 47.17%
+Trades: 159
 ```
 
 ## 6.4. Ý nghĩa kết quả
 
-Kết quả gần hòa vốn cho thấy tín hiệu có thể được đưa qua simulator nhưng chưa chứng minh lợi thế thực tế. Profit factor dưới 1 và Sharpe gần 0 cho thấy lợi nhuận chưa đủ bù rủi ro sau chi phí. Max drawdown khoảng 3.13% trong mô phỏng này chưa quá lớn, nhưng không đủ để khẳng định tính ổn định.
+Kết quả dương nhẹ (return 1.92%, profit factor 1.109) cho thấy tín hiệu có thể được đưa qua simulator nhưng chưa chứng minh lợi thế thực tế. Sharpe 0.384 và Calmar 0.138 vẫn ở mức thấp. Max drawdown khoảng 2.72% trong mô phỏng này chưa quá lớn, nhưng không đủ để khẳng định tính ổn định.
 
 Backtest cũng phụ thuộc mạnh vào giả định thực thi. Trong thực tế, spread của XAU/USD thay đổi theo phiên và sự kiện tin tức; slippage có thể tăng khi biến động mạnh; thanh khoản và điều kiện broker cũng ảnh hưởng kết quả. Vì vậy, mọi kết luận triển khai cần thận trọng.
 
@@ -83,7 +84,7 @@ Backtest chỉ có ý nghĩa khi giả định chi phí được nêu rõ. Với
 - Giới hạn margin và leverage.
 - Khác biệt giá giữa broker và nguồn dữ liệu.
 
-Nếu bỏ qua chi phí, backtest thường lạc quan. Trong kết quả hiện tại, profit factor đã dưới 1 dù return gần hòa vốn, vì vậy chỉ cần chi phí thực tế tăng nhẹ cũng có thể làm chiến lược xấu đi.
+Nếu bỏ qua chi phí, backtest thường lạc quan. Trong kết quả hiện tại, profit factor chỉ vừa trên 1 và Sharpe vẫn thấp, vì vậy chỉ cần chi phí thực tế tăng nhẹ cũng có thể làm chiến lược xấu đi.
 
 ## 6.9. Quản trị rủi ro tối thiểu
 

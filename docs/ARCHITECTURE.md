@@ -326,9 +326,11 @@ The pipeline refuses to run backtest if `[labels]` TP/SL multipliers differ from
 | File | Content |
 |---|---|
 | `backtest_results.json` | Core metrics (return, Sharpe, drawdown, win rate, profit factor, trade count) |
-| `trades.csv` | Per-trade records (entry/exit time, price, PnL, direction) |
+| `trades_detail.csv` | Per-trade records (entry/exit time, price, PnL, direction) |
 | `equity_curve.csv` | Running equity with peak and drawdown columns |
+| `equity_curve.png` | Static equity curve image |
 | `backtest_chart.html` | Bokeh equity curve visualization |
+| `feature_importance.png` | Feature importance bar chart |
 
 ---
 
@@ -362,6 +364,7 @@ Generates a comprehensive Markdown thesis report and supporting metric files.
 | `model_metrics.json` | All computed metrics as JSON |
 | `model_comparison.csv` | Model comparison table |
 | `model_comparison.md` | Markdown-formatted comparison |
+| `model_comparison.json` | Machine-readable model comparison data |
 | `model_evaluation.md` | Evaluation summary |
 | `feature_importance.json` | Sorted feature importance |
 
@@ -383,7 +386,7 @@ Generates a comprehensive Markdown thesis report and supporting metric files.
 Each pipeline run creates a timestamped session directory:
 
 ```text
-results/XAUUSD_1H_20260511_231114/
+results/XAUUSD_1H_20260513_023811/
 ├── config/
 │   ├── config_snapshot.toml    Config snapshot used for this run
 │   └── session_info.json       Metadata: config hash, timing, validation params
@@ -397,16 +400,19 @@ results/XAUUSD_1H_20260511_231114/
 │   ├── model_metrics.json
 │   ├── model_comparison.csv
 │   ├── model_comparison.md
+│   ├── model_comparison.json
 │   ├── model_evaluation.md
 │   ├── walk_forward_history.json
 │   └── feature_importance.json
 ├── backtest/
 │   ├── backtest_results.json
-│   ├── trades.csv
+│   ├── trades_detail.csv
 │   ├── equity_curve.csv
+│   ├── equity_curve.png
+│   ├── feature_importance.png
 │   └── backtest_chart.html
 └── logs/
     └── pipeline.log            Full pipeline log with ANSI stripped
 ```
 
-Sessions can be resumed with `--session XAUUSD_1H_20260511_231114`.
+Sessions can be resumed with `--session XAUUSD_1H_20260513_023811`.

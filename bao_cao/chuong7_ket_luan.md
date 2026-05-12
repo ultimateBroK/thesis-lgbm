@@ -21,12 +21,12 @@ Các kết quả chính:
 Trong lần chạy mới nhất:
 
 ```text
-Hybrid Stacking Accuracy  0.3397
-Hybrid Stacking Macro F1  0.3162
-LightGBM Accuracy         0.3770
-LightGBM Macro F1         0.3281
-Backtest Win Rate         47.67%
-Backtest Total Return     0.0364%
+Hybrid Stacking Accuracy  0.3416
+Hybrid Stacking Macro F1  0.3152
+LightGBM Accuracy         0.3738
+LightGBM Macro F1         0.3265
+Backtest Win Rate         47.17%
+Backtest Total Return     1.92%
 ```
 
 Hybrid Stacking không vượt LightGBM đơn lẻ. Đây là kết quả cần trình bày trung thực: trên dữ liệu tài chính nhiễu cao, tăng độ phức tạp mô hình không luôn tạo cải thiện ngoài mẫu. Đóng góp của đồ án không nằm ở việc chứng minh chiến lược giao dịch sinh lời, mà ở việc xây dựng quy trình đánh giá có kiểm soát và minh bạch.
@@ -86,7 +86,7 @@ Trong lần chạy hiện tại, không. LightGBM có Macro F1 cao hơn Hybrid S
 
 ### Câu hỏi 4: Backtest có chứng minh chiến lược sinh lời không?
 
-Không. Backtest gần hòa vốn nhưng profit factor dưới 1 và Sharpe gần 0. Nó chỉ chứng minh pipeline có thể tạo tín hiệu và mô phỏng giao dịch, không chứng minh lợi thế giao dịch thực tế.
+Không. Backtest có return dương nhẹ (1.92%) nhưng profit factor chỉ vừa trên 1 và Sharpe vẫn thấp. Nó chỉ chứng minh pipeline có thể tạo tín hiệu và mô phỏng giao dịch, không chứng minh lợi thế giao dịch thực tế.
 
 ## 7.9. Bài học phương pháp luận
 
@@ -104,7 +104,7 @@ Các bài học chính:
 
 Khi bảo vệ, nên nhấn mạnh:
 
-- “Hybrid” ở đây là stacking nhiều họ mô hình: tuyến tính, bagging tree, boosting tree.
+- "Hybrid" ở đây là stacking nhiều họ mô hình: tuyến tính, bagging tree, boosting tree.
 - Đóng góp chính là pipeline đánh giá có kiểm soát.
 - Kết quả LightGBM vượt Stacking được trình bày trung thực.
 - Backtest là demo ứng dụng, không phải claim lợi nhuận.
