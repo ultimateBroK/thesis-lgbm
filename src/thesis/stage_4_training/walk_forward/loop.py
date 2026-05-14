@@ -1,8 +1,4 @@
-"""Shared walk-forward orchestration loop.
-
-Provides a generic ``run_walk_forward`` that both LightGBM and stacking
-trainers delegate to, eliminating the duplicated prepare → loop → save pattern.
-"""
+"""Generic walk-forward loop. Used by both LGBM and stacking."""
 
 from __future__ import annotations
 
@@ -14,53 +10,50 @@ from typing import Any
 from thesis.shared.config import Config
 from thesis.shared.ui import console
 
-logger = logging.getLogger("thesis.pipeline")
+logger = logging.getLogger("thesis")
 
 
 def run_walk_forward(
     config: Config,
     *,
-    prepare_fn: Callable,
-    window_fn: Callable,
-    save_fn: Callable,
+    prepare_fn: Callable[[Config], tuple[Any, list[Any], list[str], dict[str, Any]]],
+    window_fn: Callable[..., dict[str, Any] | None],
+    save_fn: Callable[[Config, list[dict[str, Any]], list[Any], float], None],
 ) -> None:
-    """Execute the generic walk-forward loop.
+    """Execute the walk-forward loop.
 
     Args:
-        config: Application configuration.
-        prepare_fn: ``(config) -> (df, windows, feature_cols, extra_data)``
-            Loads data and generates windows.  *extra_data* is unpacked
-            as keyword arguments into each *window_fn* call.
-        window_fn: ``(config, w_idx, window, df, feature_cols, **extra_data)
-            -> dict | None`` — trains and predicts for one window.
-            Returns ``None`` to skip.
-        save_fn: ``(config, results, windows, stage_start) -> None``
-            Persists all accumulated results.
+        config: Application config.
+        prepare_fn: Loads data, returns (df, windows, feature_cols, extra).
+        window_fn: Trains one window, returns result or None to skip.
+        save_fn: Persists all results after loop finishes.
     """
+    t0 = time.perf_counter()
     df, windows, feature_cols, extra_data = prepare_fn(config)
-    stage_start = time.perf_counter()
+    logger.info(
+        "Walk-forward: %d windows, %d features", len(windows), len(feature_cols)
+    )
 
     results: list[dict[str, Any]] = []
     for w_idx, window in enumerate(windows):
-        window_start = time.perf_counter()
-        console.rule(f"[bold cyan]Window {w_idx + 1}/{len(windows)}[/]", style="cyan")
+        wt = time.perf_counter()
+        console.rule(f"[bold cyan]Window {w_idx + 1}/{len(windows)}[/]")
         logger.info(
-            "=== Window %d/%d: train=[%d:%d] test=[%d:%d] ===",
-            w_idx + 1,
-            len(windows),
+            "  [%d:%d] train | [%d:%d] test",
             window.train_start_idx,
             window.train_end_idx,
             window.test_start_idx,
             window.test_end_idx,
         )
         result = window_fn(config, w_idx, window, df, feature_cols, **extra_data)
-        if result is None:
-            continue
-        results.append(result)
-        logger.info(
-            "Window %d done (%.1fs)",
-            w_idx + 1,
-            time.perf_counter() - window_start,
-        )
+        if result is not None:
+            results.append(result)
+        logger.info("  Window %d done (%.1fs)", w_idx + 1, time.perf_counter() - wt)
 
-    save_fn(config, results, windows, stage_start)
+    logger.info(
+        "Walk-forward: %d/%d windows produced results (%.1fs total)",
+        len(results),
+        len(windows),
+        time.perf_counter() - t0,
+    )
+    save_fn(config, results, windows, time.perf_counter() - t0)
