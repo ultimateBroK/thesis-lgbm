@@ -1,4 +1,8 @@
-"""Triple-barrier labeling. +1 long / 0 hold / -1 short / -2 censored."""
+"""Triple-barrier labeling for directional trading signals.
+
+Assigns +1 (long) / 0 (hold) / -1 (short) / -2 (censored) labels
+using ATR-scaled profit-taking and stop-loss barriers.
+"""
 
 from __future__ import annotations
 
@@ -24,48 +28,32 @@ logger = logging.getLogger("thesis.labels")
 _console = SimpleConsole()
 
 
-def build_labels(config: Config) -> None:
-    """Load features → triple-barrier labels → filter censored → write."""
-    df, atr_col = _load_features_and_ohlcv(config)
-    _log_atr_stats(df, atr_col, config.labels.min_atr)
+def _check_unique_timestamps(df: pl.DataFrame, name: str) -> None:
+    if "timestamp" not in df.columns:
+        return
+    dup_count = len(df) - df["timestamp"].n_unique()
+    if dup_count > 0:
+        raise ValueError(
+            f"{name} has {dup_count} duplicate timestamps — deduplicate first."
+        )
 
-    labels, upper, lower, touched, _ambiguous = _compute_triple_barrier(
-        close=df["close"].to_numpy(),
-        high=df["high"].to_numpy(),
-        low=df["low"].to_numpy(),
-        atr=df[atr_col].to_numpy(),
-        tp_mult=config.labels.atr_tp_multiplier,
-        sl_mult=config.labels.atr_sl_multiplier,
-        horizon=config.labels.horizon_bars,
-        min_atr=config.labels.min_atr,
-    )
 
-    logger.info(
-        "tp_mult=%.2f sl_mult=%.2f horizon=%d min_atr=%.6f",
-        config.labels.atr_tp_multiplier,
-        config.labels.atr_sl_multiplier,
-        config.labels.horizon_bars,
-        config.labels.min_atr,
-    )
-
-    event_end = compute_event_end(touched, config.labels.horizon_bars)
-    weights = compute_average_uniqueness(event_end)
-
-    df = _attach_label_columns(df, labels, upper, lower, touched, event_end, weights)
-    df = _drop_censored_and_nan(df)
-    _log_distribution(df)
-    _log_weight_stats(df)
-
-    _validate_no_join_artifacts(df)
-
-    out_path = Path(config.paths.labels)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    df.write_parquet(out_path)
-    logger.info("Labels saved: %s (%d rows)", out_path, len(df))
+def _drop_join_artifacts(df: pl.DataFrame) -> pl.DataFrame:
+    """Polars inner join can leave _right suffix columns — remove them."""
+    right_cols = [c for c in df.columns if c.endswith("_right")]
+    if right_cols:
+        logger.warning(
+            "Dropping %d join-artifact columns: %s",
+            len(right_cols),
+            right_cols,
+        )
+        df = df.drop(right_cols)
+    _check_unique_timestamps(df, "joined feature/OHLCV")
+    return df
 
 
 def _load_features_and_ohlcv(config: Config) -> tuple[pl.DataFrame, str]:
-    """Load features parquet. Join OHLCV if OHLC columns missing from features."""
+    """Features parquet → join OHLCV only when OHLC columns absent."""
     features_path = Path(config.paths.features)
     ohlcv_path = Path(config.paths.ohlcv)
 
@@ -113,7 +101,6 @@ def _compute_triple_barrier(
     horizon: int,
     min_atr: float,
 ) -> tuple:
-    """Delegate to numba compute_labels."""
     from thesis.dataset._label_numba import compute_labels as _numba_labels
 
     return _numba_labels(close, high, low, atr, tp_mult, sl_mult, horizon, min_atr)
@@ -128,7 +115,6 @@ def _attach_label_columns(
     event_end: np.ndarray,
     weights: np.ndarray,
 ) -> pl.DataFrame:
-    """Attach label, barrier, touched, event_end, sample_weight columns."""
     return df.with_columns(
         [
             pl.Series("label", labels),
@@ -141,40 +127,8 @@ def _attach_label_columns(
     )
 
 
-def _drop_join_artifacts(df: pl.DataFrame) -> pl.DataFrame:
-    """Drop _right suffix columns from inner join."""
-    right_cols = [c for c in df.columns if c.endswith("_right")]
-    if right_cols:
-        logger.warning(
-            "Dropping %d join-artifact columns: %s",
-            len(right_cols),
-            right_cols,
-        )
-        df = df.drop(right_cols)
-    _check_unique_timestamps(df, "joined feature/OHLCV")
-    return df
-
-
-def _check_unique_timestamps(df: pl.DataFrame, name: str) -> None:
-    """Raise on duplicate timestamps."""
-    if "timestamp" not in df.columns:
-        return
-    dup_count = len(df) - df["timestamp"].n_unique()
-    if dup_count > 0:
-        raise ValueError(
-            f"{name} has {dup_count} duplicate timestamps — deduplicate first."
-        )
-
-
-def _validate_no_join_artifacts(df: pl.DataFrame) -> None:
-    """Fail if output has _right suffix columns."""
-    right_cols = [c for c in df.columns if c.endswith("_right")]
-    if right_cols:
-        raise ValueError(f"labels.parquet contains join artifacts: {right_cols}")
-
-
 def _drop_censored_and_nan(df: pl.DataFrame) -> pl.DataFrame:
-    """Drop censored (label=-2) and NaN regression_target rows."""
+    """Censored labels (simultaneous barrier hits) are untradeable — drop them."""
     n_before = len(df)
     n_censored = int((df["label"] == CENSORED_LABEL).sum())
     if n_censored > 0:
@@ -197,8 +151,13 @@ def _drop_censored_and_nan(df: pl.DataFrame) -> pl.DataFrame:
     return df
 
 
+def _validate_no_join_artifacts(df: pl.DataFrame) -> None:
+    right_cols = [c for c in df.columns if c.endswith("_right")]
+    if right_cols:
+        raise ValueError(f"labels.parquet contains join artifacts: {right_cols}")
+
+
 def _log_atr_stats(df: pl.DataFrame, atr_col: str, min_atr: float) -> None:
-    """ATR min/median/p5/p95 + % below min_atr floor."""
     s = df.select(
         pl.col(atr_col).min().alias("min"),
         pl.col(atr_col).median().alias("median"),
@@ -218,7 +177,6 @@ def _log_atr_stats(df: pl.DataFrame, atr_col: str, min_atr: float) -> None:
 
 
 def _log_distribution(df: pl.DataFrame) -> None:
-    """Label class counts + percentages."""
     if "label" not in df.columns:
         return
     total = len(df)
@@ -227,7 +185,6 @@ def _log_distribution(df: pl.DataFrame) -> None:
 
 
 def _log_weight_stats(df: pl.DataFrame) -> None:
-    """Sample weight min/median/max/mean."""
     if "sample_weight" not in df.columns:
         return
     s = df.select(
@@ -243,3 +200,43 @@ def _log_weight_stats(df: pl.DataFrame) -> None:
         s["max"] or 0.0,
         s["mean"] or 0.0,
     )
+
+
+def build_labels(config: Config) -> None:
+    """Features → triple-barrier labels → uniqueness weights → parquet."""
+    df, atr_col = _load_features_and_ohlcv(config)
+    _log_atr_stats(df, atr_col, config.labels.min_atr)
+
+    labels, upper, lower, touched, _ambiguous = _compute_triple_barrier(
+        close=df["close"].to_numpy(),
+        high=df["high"].to_numpy(),
+        low=df["low"].to_numpy(),
+        atr=df[atr_col].to_numpy(),
+        tp_mult=config.labels.atr_tp_multiplier,
+        sl_mult=config.labels.atr_sl_multiplier,
+        horizon=config.labels.horizon_bars,
+        min_atr=config.labels.min_atr,
+    )
+
+    logger.info(
+        "tp_mult=%.2f sl_mult=%.2f horizon=%d min_atr=%.6f",
+        config.labels.atr_tp_multiplier,
+        config.labels.atr_sl_multiplier,
+        config.labels.horizon_bars,
+        config.labels.min_atr,
+    )
+
+    event_end = compute_event_end(touched, config.labels.horizon_bars)
+    weights = compute_average_uniqueness(event_end)
+
+    df = _attach_label_columns(df, labels, upper, lower, touched, event_end, weights)
+    df = _drop_censored_and_nan(df)
+    _log_distribution(df)
+    _log_weight_stats(df)
+
+    _validate_no_join_artifacts(df)
+
+    out_path = Path(config.paths.labels)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    df.write_parquet(out_path)
+    logger.info("Labels saved: %s (%d rows)", out_path, len(df))

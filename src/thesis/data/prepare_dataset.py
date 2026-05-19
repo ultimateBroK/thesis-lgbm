@@ -1,4 +1,4 @@
-"""Raw ticks → OHLCV H1 parquet + data quality summary."""
+"""Raw tick data → validated OHLCV bars with quality diagnostics."""
 
 from __future__ import annotations
 
@@ -20,11 +20,8 @@ from thesis.shared.constants import timeframe_to_ms as _timeframe_to_ms
 logger = logging.getLogger("thesis.prepare")
 
 
-# ── OHLCV validation (merged from shared/data_quality.py) ──────────────────
-
-
 def validate_ohlcv(df: pl.DataFrame) -> dict[str, Any]:
-    """Unified OHLCV integrity check."""
+    """OHLCV integrity: OHLC relationships, non-negative prices/volumes."""
     if df.is_empty():
         return dict(
             total_rows=0,
@@ -74,7 +71,7 @@ def validate_ohlcv(df: pl.DataFrame) -> dict[str, Any]:
 
 
 def check_gap_report(df: pl.DataFrame, timeframe_ms: int) -> dict[str, Any]:
-    """Timestamp continuity: find gaps > timeframe_ms, count duplicates."""
+    """Timestamp continuity: gaps > timeframe_ms and duplicate count."""
     if "timestamp" not in df.columns or len(df) < 2:
         return dict(
             gap_count=0,
@@ -104,8 +101,6 @@ def check_gap_report(df: pl.DataFrame, timeframe_ms: int) -> dict[str, Any]:
     )
 
 
-# ── gap classification (merged from shared/data_quality.py) ────────────────
-
 DEFAULT_GOLD_CALENDARS: tuple[str, ...] = (
     "CME Globex Gold and Silver Futures",
     "CME Globex Commodities",
@@ -125,7 +120,7 @@ class GapClassification:
 
 
 def _resolve_market_calendar(name: str | None = None):
-    """Resolve market calendar, defaulting to gold sessions."""
+    """Try CME gold calendars in priority order — first success wins."""
     candidates = [name] if name else list(DEFAULT_GOLD_CALENDARS)
     for candidate in candidates:
         if not candidate:
@@ -143,7 +138,10 @@ def _resolve_market_calendar(name: str | None = None):
 def _classify_gaps_with_calendar(
     df: pl.DataFrame, timeframe_ms: int, calendar_name: str | None
 ) -> GapClassification:
-    """Classify gaps using pandas_market_calendars."""
+    """Separate expected closures from real missing bars.
+
+    Uses CME trading schedule.
+    """
     ts = df["timestamp"].sort().to_list()
     actual_index = pd.DatetimeIndex(ts)
     if actual_index.tz is None:
@@ -201,7 +199,7 @@ def _classify_gaps_with_calendar(
 def _classify_gaps_with_heuristic(
     df: pl.DataFrame, timeframe_ms: int, reason: str
 ) -> GapClassification:
-    """Weekend heuristic fallback when calendar library unavailable."""
+    """Weekend heuristic — fallback when market calendar library unavailable."""
     ts_col = df["timestamp"].sort()
     deltas = ts_col.diff().drop_nulls().dt.total_milliseconds().to_list()
     ts_values = ts_col.to_list()
@@ -234,7 +232,7 @@ def _classify_gaps_with_heuristic(
 def classify_calendar_gaps(
     df: pl.DataFrame, timeframe_ms: int, *, calendar_name: str | None = None
 ) -> GapClassification:
-    """Classify gaps into calendar-expected closures and real missing bars."""
+    """Calendar-expected closures vs real missing data bars."""
     if "timestamp" not in df.columns or len(df) < 2:
         return GapClassification(0, 0, 0, 0, [])
     try:
@@ -245,11 +243,7 @@ def classify_calendar_gaps(
         )
 
 
-# ── discover ───────────────────────────────────────────────────────────────
-
-
 def _discover_files(raw_dir: Path, ohlcv_path: Path) -> list[Path]:
-    """Find monthly parquet files. Skip if OHLCV cached."""
     if not raw_dir.exists():
         if ohlcv_path.exists():
             logger.warning("Raw dir missing but OHLCV cached — skip.")
@@ -262,9 +256,6 @@ def _discover_files(raw_dir: Path, ohlcv_path: Path) -> list[Path]:
             return []
         raise FileNotFoundError(f"No parquet files in {raw_dir}")
     return files
-
-
-# ── aggregate ──────────────────────────────────────────────────────────────
 
 
 def _parse_dt(value: str, tz: str) -> pl.Expr:
@@ -283,7 +274,7 @@ def _parse_dt(value: str, tz: str) -> pl.Expr:
 
 
 def _microprice(ticks: pl.DataFrame) -> pl.DataFrame:
-    """Weight bid/ask by opposing side volume. Add microprice + volume cols."""
+    """Volume-weighted mid: bid/ask weighted by opposing side depth."""
     return ticks.with_columns(
         (
             (
@@ -297,7 +288,7 @@ def _microprice(ticks: pl.DataFrame) -> pl.DataFrame:
 
 
 def _clip_to_month(df: pl.DataFrame, stem: str) -> pl.DataFrame:
-    """Drop bars outside nominal month (boundary ticks bleed into neighbor file)."""
+    """Boundary ticks from adjacent files bleed in — clip to nominal month."""
     year, month = int(stem[:4]), int(stem[5:7])
     start = pl.datetime(year, month, 1)
     end = (
@@ -309,7 +300,7 @@ def _clip_to_month(df: pl.DataFrame, stem: str) -> pl.DataFrame:
 
 
 def _aggregate_file(file_path: Path, group_every: str) -> pl.DataFrame:
-    """One file → OHLCV bars. Validate quotes, microprice, group by time."""
+    """Single monthly tick file → OHLCV bars with volume imbalance and spread."""
     ticks = pl.read_parquet(
         file_path,
         columns=["timestamp", "bid", "ask", "ask_volume", "bid_volume"],
@@ -364,7 +355,6 @@ def _aggregate_file(file_path: Path, group_every: str) -> pl.DataFrame:
 
 
 def _aggregate_all(files: list[Path], group_every: str) -> pl.DataFrame:
-    """All monthly files → sorted OHLCV DataFrame."""
     bars = []
     for i, f in enumerate(files, 1):
         logger.info("Aggregating %d/%d: %s", i, len(files), f.name)
@@ -372,11 +362,8 @@ def _aggregate_all(files: list[Path], group_every: str) -> pl.DataFrame:
     return pl.concat(bars, how="vertical").sort("timestamp")
 
 
-# ── clean ──────────────────────────────────────────────────────────────────
-
-
 def _dedupe_and_filter(ohlcv: pl.DataFrame) -> tuple[pl.DataFrame, int]:
-    """Drop dup timestamps (keep first). Drop corrupted (year < 2000 or > 2100)."""
+    """Remove duplicate timestamps and corrupted bars (year < 2000 or > 2100)."""
     n = len(ohlcv)
     dupes = n - ohlcv.get_column("timestamp").n_unique()
     if dupes > 0:
@@ -393,7 +380,6 @@ def _dedupe_and_filter(ohlcv: pl.DataFrame) -> tuple[pl.DataFrame, int]:
 
 
 def _filter_range(ohlcv: pl.DataFrame, config: Config) -> pl.DataFrame:
-    """Apply config date range. Raise if empty result."""
     tz = config.data.market_tz
     start = _parse_dt(config.data_range.start, tz)
     end = _parse_dt(config.data_range.end, tz)
@@ -414,11 +400,7 @@ def _filter_range(ohlcv: pl.DataFrame, config: Config) -> pl.DataFrame:
     return ohlcv
 
 
-# ── persist ────────────────────────────────────────────────────────────────
-
-
 def _log_gap(ohlcv: pl.DataFrame, group_ms: int) -> None:
-    """Log timestamp continuity."""
     if len(ohlcv) < 2:
         logger.warning("Gap report skipped: < 2 bars")
         return
@@ -440,7 +422,6 @@ def _log_gap(ohlcv: pl.DataFrame, group_ms: int) -> None:
 
 
 def _log_quality(ohlcv: pl.DataFrame) -> None:
-    """Log candle integrity: invalid count, range/spread/tick stats."""
     if ohlcv.is_empty():
         return
     v = validate_ohlcv(ohlcv)
@@ -465,7 +446,6 @@ def _log_quality(ohlcv: pl.DataFrame) -> None:
 
 
 def _save_json(ohlcv: pl.DataFrame, config: Config, group_ms: int, dupes: int) -> None:
-    """Write data quality stats JSON sidecar."""
     total = len(ohlcv)
     stats: dict[str, Any] = {
         "total_bars": total,
@@ -496,7 +476,6 @@ def _save_json(ohlcv: pl.DataFrame, config: Config, group_ms: int, dupes: int) -
 
 
 def _persist(ohlcv: pl.DataFrame, config: Config, dupes: int) -> None:
-    """Log diagnostics, save quality JSON, write OHLCV parquet."""
     group_ms = _timeframe_to_ms(config.data.timeframe)
     _log_gap(ohlcv, group_ms)
     _log_quality(ohlcv)
@@ -513,11 +492,8 @@ def _persist(ohlcv: pl.DataFrame, config: Config, dupes: int) -> None:
     logger.info("Saved: %s", out)
 
 
-# ── public API ─────────────────────────────────────────────────────────────
-
-
 def prepare_dataset(config: Config) -> None:
-    """OHLCV from raw ticks → parquet + quality JSON. Public entry point."""
+    """Raw ticks → validated OHLCV parquet + quality JSON."""
     raw_dir = Path(config.paths.data_raw)
     ohlcv_path = Path(config.paths.ohlcv)
 

@@ -1,4 +1,4 @@
-"""Merge features + labels -> ml_dataset.parquet."""
+"""Build ML-ready dataset by merging features with triple-barrier labels."""
 
 from __future__ import annotations
 
@@ -26,7 +26,18 @@ def _load_parquet(path: Path, name: str) -> pl.DataFrame:
     return pl.read_parquet(path)
 
 
+def _write_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+    logger.debug("Wrote %s", path)
+
+
 def _join_features_labels(features: pl.DataFrame, labels: pl.DataFrame) -> pl.DataFrame:
+    """Timestamp join preferred.
+
+    Positional concat when timestamps absent but lengths match.
+    """
     if "timestamp" in features.columns and "timestamp" in labels.columns:
         return features.join(labels, on="timestamp", how="inner")
     if len(features) == len(labels):
@@ -57,14 +68,8 @@ def _drop_null_labels(df: pl.DataFrame) -> pl.DataFrame:
     return df
 
 
-def _validate_ml_dataset(df: pl.DataFrame, config: Config) -> None:
-    if df.is_empty():
-        raise ValueError("ML dataset is empty after dropping NaN labels")
-
-    expected = set(build_feature_output_cols(config) + LABEL_META_COLS)
-    missing = expected - set(df.columns)
-    if missing:
-        logger.warning("Missing expected columns (non-fatal): %s", sorted(missing))
+def _model_feature_cols(df: pl.DataFrame, config: Config) -> list[str]:
+    return sorted(c for c in df.columns if c in set(get_static_feature_cols(config)))
 
 
 def _label_distribution(df: pl.DataFrame) -> dict[str, int]:
@@ -74,8 +79,14 @@ def _label_distribution(df: pl.DataFrame) -> dict[str, int]:
     return {str(row["label"]): int(row["count"]) for row in dist.iter_rows(named=True)}
 
 
-def _model_feature_cols(df: pl.DataFrame, config: Config) -> list[str]:
-    return sorted(c for c in df.columns if c in set(get_static_feature_cols(config)))
+def _validate_ml_dataset(df: pl.DataFrame, config: Config) -> None:
+    if df.is_empty():
+        raise ValueError("ML dataset is empty after dropping NaN labels")
+
+    expected = set(build_feature_output_cols(config) + LABEL_META_COLS)
+    missing = expected - set(df.columns)
+    if missing:
+        logger.warning("Missing expected columns (non-fatal): %s", sorted(missing))
 
 
 def _write_ml_artifacts(
@@ -115,7 +126,7 @@ def _print_summary(
 
 
 def build_ml_dataset(config: Config) -> None:
-    """Load labels -> select features + label -> validate -> write artifacts."""
+    """Merge features + labels → validated ML-ready parquet + metadata artifacts."""
     features_path = Path(config.paths.features)
     labels_path = Path(config.paths.labels)
     out_path = Path(config.paths.ml_dataset)
@@ -133,11 +144,3 @@ def build_ml_dataset(config: Config) -> None:
     dist = _label_distribution(df)
     _write_ml_artifacts(df, out_path, model_cols, dist)
     _print_summary(df, model_cols, dist)
-
-
-def _write_json(path: Path, data: dict) -> None:
-    """Write dict as indented JSON."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
-    logger.debug("Wrote %s", path)

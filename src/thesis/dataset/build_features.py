@@ -1,4 +1,4 @@
-"""OHLCV -> enriched features pipeline."""
+"""Feature engineering: OHLCV bars → enriched feature matrix."""
 
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ logger = logging.getLogger("thesis.dataset.build_features")
 
 
 def _read_ohlcv_bars(config: Config) -> pl.DataFrame:
-    """Load Stage 1 OHLCV+ bars."""
     ohlcv_path = Path(config.paths.ohlcv)
     if not ohlcv_path.exists():
         raise FileNotFoundError(f"OHLCV not found: {ohlcv_path}")
@@ -31,7 +30,7 @@ def _read_ohlcv_bars(config: Config) -> pl.DataFrame:
 
 
 def _require_model_features(df: pl.DataFrame, config: Config) -> None:
-    """Fail if configured model features are missing after feature creation."""
+    """Fail fast if configured features are missing — config/data mismatch."""
     required = set(get_static_feature_cols(config))
     missing = sorted(required - set(df.columns))
     if missing:
@@ -39,7 +38,6 @@ def _require_model_features(df: pl.DataFrame, config: Config) -> None:
 
 
 def _select_feature_output(df: pl.DataFrame, config: Config) -> pl.DataFrame:
-    """Keep registered feature, helper, and label-input columns only."""
     if "return_1h" in df.columns and "log_returns" not in df.columns:
         df = df.with_columns(pl.col("return_1h").alias("log_returns"))
     desired = build_feature_output_cols(config)
@@ -47,10 +45,15 @@ def _select_feature_output(df: pl.DataFrame, config: Config) -> pl.DataFrame:
     return df.select(existing)
 
 
+def _save_feature_list(features_path: Path, feature_cols: list[str]) -> None:
+    list_path = features_path.with_suffix(".feature_list.json")
+    with open(list_path, "w") as f:
+        json.dump(feature_cols, f, indent=2)
+
+
 def _write_feature_artifacts(
     df: pl.DataFrame, config: Config, model_cols: list[str]
 ) -> None:
-    """Save features parquet and model-facing feature list."""
     out_path = Path(config.paths.features)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df.write_parquet(out_path)
@@ -62,7 +65,6 @@ def _write_feature_artifacts(
 
 
 def _validate_ohlcv_input(df: pl.DataFrame, config: Config) -> None:
-    """Reject empty, unsorted, duplicate, or heavily-gapped input."""
     if df.is_empty():
         raise ValueError("OHLCV is empty; cannot generate features")
 
@@ -79,7 +81,7 @@ def _validate_ohlcv_input(df: pl.DataFrame, config: Config) -> None:
     if len(df) < 2:
         return
 
-    # log gap stats -- weekends/holidays expected, don't fail
+    # Weekends/holidays cause expected gaps — log but don't fail
     expected_ms = timeframe_to_ms(config.data.timeframe)
     deltas = (
         df.select(pl.col("timestamp").diff().dt.total_milliseconds().alias("delta_ms"))
@@ -97,12 +99,12 @@ def _validate_ohlcv_input(df: pl.DataFrame, config: Config) -> None:
 
 
 def _drop_warmup_rows(df: pl.DataFrame, feature_cols: list[str]) -> pl.DataFrame:
-    """Drop rows with null/non-finite features (rolling warm-up period)."""
+    """Drop rows with null/non-finite features from rolling warm-up period."""
     existing = [c for c in feature_cols if c in df.columns]
     n_before = len(df)
     df = df.fill_nan(None).drop_nulls(subset=existing)
     if existing:
-        # catch inf/-inf from div-by-zero
+        # Div-by-zero in rolling computations can produce inf/-inf
         df = df.filter(pl.all_horizontal(pl.col(c).is_finite() for c in existing))
     dropped = n_before - len(df)
     if dropped > 0:
@@ -113,7 +115,10 @@ def _drop_warmup_rows(df: pl.DataFrame, feature_cols: list[str]) -> pl.DataFrame
 
 
 def _validate_feature_quality(df: pl.DataFrame, config: Config) -> None:
-    """Unique timestamps + strictly increasing + no nulls (no Pandera)."""
+    if "label" in df.columns:
+        # Label column should not leak into features
+        raise ValueError("Features contain 'label' column — data leakage risk")
+
     p = config.features.rsi_period
     rsi_col = f"rsi_{p}"
     if rsi_col in df.columns:
@@ -135,15 +140,8 @@ def _validate_feature_quality(df: pl.DataFrame, config: Config) -> None:
         raise ValueError("Features validation failed: null values remain after warm-up")
 
 
-def _save_feature_list(features_path: Path, feature_cols: list[str]) -> None:
-    """Write JSON sidecar with model-facing feature column names."""
-    list_path = features_path.with_suffix(".feature_list.json")
-    with open(list_path, "w") as f:
-        json.dump(feature_cols, f, indent=2)
-
-
 def build_features(config: Config) -> None:
-    """Stage 2 feature orchestration: read -> create -> clean -> write."""
+    """OHLCV → indicator features → validated feature matrix → parquet."""
     df = _read_ohlcv_bars(config)
     logger.info("Input bars: %d", len(df))
     _validate_ohlcv_input(df, config)

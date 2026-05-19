@@ -1,4 +1,4 @@
-"""Business-level feature blocks for Stage 2."""
+"""Feature block composition — groups indicators into semantic categories."""
 
 from __future__ import annotations
 
